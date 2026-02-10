@@ -1,0 +1,64 @@
+# =====================================================
+# Aillium OpenClaw – Code Ownership
+# =====================================================
+# This repository is an Aillium-extended fork of OpenClaw
+# maintained by IntAillium.
+#
+# Owners listed here are responsible for:
+# - Reviewing changes
+# - Architecture integrity
+# - Security-sensitive updates
+#
+# =====================================================
+
+# Default owner for everything
+* @AnthonyOsei
+
+# -----------------------------------------------------
+# Core orchestration / planning logic
+# -----------------------------------------------------
+/src/domain/          @AnthonyOsei
+/src/planner/         @AnthonyOsei
+/src/policy/          @AnthonyOsei
+/src/plugin/          @AnthonyOsei
+
+# -----------------------------------------------------
+# External service clients (core, LiteLLM, etc.)
+# -----------------------------------------------------
+/src/clients/         @AnthonyOsei
+
+# -----------------------------------------------------
+# Configuration, entrypoints, runtime
+# -----------------------------------------------------
+/src/main.py          @AnthonyOsei
+/src/config.py        @AnthonyOsei
+
+# -----------------------------------------------------
+# Observability (logs, metrics, tracing)
+# -----------------------------------------------------
+/src/observability/   @AnthonyOsei
+
+# -----------------------------------------------------
+# Contracts & schema adapters
+# -----------------------------------------------------
+/src/contracts/       @AnthonyOsei
+
+# -----------------------------------------------------
+# Tests
+# -----------------------------------------------------
+/tests/               @AnthonyOsei
+
+# -----------------------------------------------------
+# Documentation & governance
+# -----------------------------------------------------
+/README.AILLIUM.md        @AnthonyOsei
+/AI_GUARDRAILS.AILLIUM.md @AnthonyOsei
+/ARCHITECTURE.AILLIUM.md  @AnthonyOsei
+/SECURITY.AILLIUM.md      @AnthonyOsei
+
+# -----------------------------------------------------
+# Sensitive / high-risk files
+# -----------------------------------------------------
+/Dockerfile            @AnthonyOsei
+/.github/workflows/    @AnthonyOsei
+/.env.example          @AnthonyOsei
