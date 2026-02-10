@@ -1,0 +1,14 @@
+Aillium Platform – Fork Notice
+
+This repository is a fork of the original OpenClaw / UI-TARS project.
+
+Modifications have been made to:
+- Integrate with the Aillium platform
+- Add policy enforcement
+- Add auditability and enterprise controls
+- Support multi-tenant operation
+
+Original copyright and license notices
+are preserved in accordance with the upstream license.
+
+This fork is maintained by IntAillium Ltd.
