@@ -2,6 +2,7 @@ import { html } from "lit";
 import { t } from "../../i18n/index.ts";
 import { renderThemeToggle } from "../app-render.helpers.ts";
 import type { AppViewState } from "../app-view-state.ts";
+import { AILLIUM_RUNTIME_CONSOLE_NAME } from "../brand.ts";
 import { icons } from "../icons.ts";
 import { normalizeBasePath } from "../navigation.ts";
 import { agentLogoUrl } from "./agents-utils.ts";
@@ -15,8 +16,8 @@ export function renderLoginGate(state: AppViewState) {
       <div class="login-gate__theme">${renderThemeToggle(state)}</div>
       <div class="login-gate__card">
         <div class="login-gate__header">
-          <img class="login-gate__logo" src=${faviconSrc} alt="OpenClaw" />
-          <div class="login-gate__title">OpenClaw</div>
+          <img class="login-gate__logo" src=${faviconSrc} alt=${AILLIUM_RUNTIME_CONSOLE_NAME} />
+          <div class="login-gate__title">${AILLIUM_RUNTIME_CONSOLE_NAME}</div>
           <div class="login-gate__sub">${t("login.subtitle")}</div>
         </div>
         <div class="login-gate__form">
@@ -113,6 +114,9 @@ export function renderLoginGate(state: AppViewState) {
         }
         <div class="login-gate__help">
           <div class="login-gate__help-title">${t("overview.connection.title")}</div>
+          <div class="callout" style="margin-bottom: 12px;">
+            Aillium uses the OpenClaw gateway under the hood for advanced operator control.
+          </div>
           <ol class="login-gate__steps">
             <li>${t("overview.connection.step1")}<code>openclaw gateway run</code></li>
             <li>${t("overview.connection.step2")}<code>openclaw dashboard --no-open</code></li>
