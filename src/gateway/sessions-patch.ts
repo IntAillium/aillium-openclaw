@@ -420,6 +420,23 @@ export async function applySessionsPatchToStore(params: {
     }
   }
 
+  if ("authProfileId" in patch) {
+    const raw = patch.authProfileId;
+    if (raw === null) {
+      delete next.authProfileOverride;
+      delete next.authProfileOverrideSource;
+      delete next.authProfileOverrideCompactionCount;
+    } else if (raw !== undefined) {
+      const trimmed = String(raw).trim();
+      if (!trimmed) {
+        return invalid("invalid authProfileId: empty");
+      }
+      next.authProfileOverride = trimmed;
+      next.authProfileOverrideSource = patch.authProfileSource === "auto" ? "auto" : "user";
+      delete next.authProfileOverrideCompactionCount;
+    }
+  }
+
   if (next.thinkingLevel === "xhigh") {
     const effectiveProvider = next.providerOverride ?? resolvedDefault.provider;
     const effectiveModel = next.modelOverride ?? resolvedDefault.model;

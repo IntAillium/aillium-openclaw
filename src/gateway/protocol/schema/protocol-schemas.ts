@@ -40,6 +40,7 @@ import {
   ToolsCatalogParamsSchema,
   ToolsCatalogResultSchema,
 } from "./agents-models-skills.js";
+import { AuthProfilesUpsertParamsSchema } from "./auth-profiles.js";
 import {
   ChannelsLogoutParamsSchema,
   TalkConfigParamsSchema,
@@ -234,6 +235,7 @@ export const ProtocolSchemas = {
   WebLoginStartParams: WebLoginStartParamsSchema,
   WebLoginWaitParams: WebLoginWaitParamsSchema,
   AgentSummary: AgentSummarySchema,
+  AuthProfilesUpsertParams: AuthProfilesUpsertParamsSchema,
   AgentsCreateParams: AgentsCreateParamsSchema,
   AgentsCreateResult: AgentsCreateResultSchema,
   AgentsUpdateParams: AgentsUpdateParamsSchema,

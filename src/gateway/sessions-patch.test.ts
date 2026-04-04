@@ -246,6 +246,26 @@ describe("gateway sessions patch", () => {
     expect(entry.authProfileOverrideCompactionCount).toBeUndefined();
   });
 
+  test("accepts authProfileId alongside a model override", async () => {
+    const entry = expectPatchOk(
+      await runPatch({
+        patch: {
+          key: MAIN_SESSION_KEY,
+          model: "openai/gpt-5.2",
+          authProfileId: "openai:aillium-tenant",
+          authProfileSource: "auto",
+        },
+        loadGatewayModelCatalog: async () => [
+          { provider: "openai", id: "gpt-5.2", name: "GPT-5.2" },
+        ],
+      }),
+    );
+    expect(entry.providerOverride).toBe("openai");
+    expect(entry.modelOverride).toBe("gpt-5.2");
+    expect(entry.authProfileOverride).toBe("openai:aillium-tenant");
+    expect(entry.authProfileOverrideSource).toBe("auto");
+  });
+
   test.each([
     {
       name: "accepts explicit allowlisted provider/model refs from sessions.patch",
