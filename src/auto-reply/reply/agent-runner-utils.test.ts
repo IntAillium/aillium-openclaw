@@ -82,6 +82,19 @@ describe("agent-runner-utils", () => {
     expect(resolved.fallbacksOverride).toEqual(["fallback-model"]);
   });
 
+  it("disables model fallbacks when runtime auth or model is pinned", () => {
+    hoisted.resolveRunModelFallbacksOverrideMock.mockReturnValue(["fallback-model"]);
+    const run = makeRun();
+
+    const resolved = resolveModelFallbackOptions(run, {
+      runtimeModelOverride: "google/gemini-3.1-pro-preview",
+      runtimeAuthProfileId: "google:aillium-tenant",
+    });
+
+    expect(hoisted.resolveRunModelFallbacksOverrideMock).not.toHaveBeenCalled();
+    expect(resolved.fallbacksOverride).toEqual([]);
+  });
+
   it("builds embedded run base params with auth profile and run metadata", () => {
     const run = makeRun({ enforceFinalTag: true });
     const authProfile = resolveProviderScopedAuthProfile({

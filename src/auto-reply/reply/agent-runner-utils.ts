@@ -7,7 +7,7 @@ import type { OpenClawConfig } from "../../config/config.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { estimateUsageCost, formatTokenCount, formatUsd } from "../../utils/usage-format.js";
 import type { TemplateContext } from "../templating.js";
-import type { ReplyPayload } from "../types.js";
+import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { resolveOriginMessageProvider, resolveOriginMessageTo } from "./origin-routing.js";
 import type { FollowupRun } from "./queue.js";
 
@@ -154,17 +154,30 @@ export const appendUsageLine = (payloads: ReplyPayload[], line: string): ReplyPa
 export const resolveEnforceFinalTag = (run: FollowupRun["run"], provider: string) =>
   Boolean(run.enforceFinalTag || isReasoningTagProvider(provider));
 
-export function resolveModelFallbackOptions(run: FollowupRun["run"]) {
+function shouldLockRuntimeModelSelection(
+  opts?: Pick<GetReplyOptions, "runtimeModelOverride" | "runtimeAuthProfileId">,
+) {
+  return Boolean(opts?.runtimeModelOverride?.trim() || opts?.runtimeAuthProfileId?.trim());
+}
+
+export function resolveModelFallbackOptions(
+  run: FollowupRun["run"],
+  opts?: Pick<GetReplyOptions, "runtimeModelOverride" | "runtimeAuthProfileId">,
+) {
+  const fallbacksOverride = shouldLockRuntimeModelSelection(opts)
+    ? []
+    : resolveRunModelFallbacksOverride({
+        cfg: run.config,
+        agentId: run.agentId,
+        sessionKey: run.sessionKey,
+      });
+
   return {
     cfg: run.config,
     provider: run.provider,
     model: run.model,
     agentDir: run.agentDir,
-    fallbacksOverride: resolveRunModelFallbacksOverride({
-      cfg: run.config,
-      agentId: run.agentId,
-      sessionKey: run.sessionKey,
-    }),
+    fallbacksOverride,
   };
 }
 
