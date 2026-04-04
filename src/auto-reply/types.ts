@@ -40,6 +40,11 @@ export type GetReplyOptions = {
   suppressTyping?: boolean;
   /** Resolved heartbeat model override (provider/model string from merged per-agent config). */
   heartbeatModelOverride?: string;
+  /** Runtime-scoped provider/model override applied to this send before reply resolution. */
+  runtimeModelOverride?: string;
+  /** Runtime-scoped auth profile pinned to this send/session before reply resolution. */
+  runtimeAuthProfileId?: string;
+  runtimeAuthProfileSource?: "auto" | "user";
   /** Controls bootstrap workspace context injection (default: full). */
   bootstrapContextMode?: "full" | "lightweight";
   /** If true, suppress tool error warning payloads for this run. */

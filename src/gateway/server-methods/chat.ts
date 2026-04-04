@@ -1118,6 +1118,9 @@ export const chatHandlers: GatewayRequestHandlers = {
     const p = params as {
       sessionKey: string;
       message: string;
+      model?: string;
+      authProfileId?: string;
+      authProfileSource?: "auto" | "user";
       thinking?: string;
       deliver?: boolean;
       attachments?: Array<{
@@ -1345,6 +1348,9 @@ export const chatHandlers: GatewayRequestHandlers = {
           runId: clientRunId,
           abortSignal: abortController.signal,
           images: parsedImages.length > 0 ? parsedImages : undefined,
+          runtimeModelOverride: p.model?.trim() || undefined,
+          runtimeAuthProfileId: p.authProfileId?.trim() || undefined,
+          runtimeAuthProfileSource: p.authProfileSource,
           onAgentRunStart: (runId) => {
             agentRunStarted = true;
             const connId = typeof client?.connId === "string" ? client.connId : undefined;

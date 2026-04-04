@@ -35,6 +35,9 @@ export const ChatSendParamsSchema = Type.Object(
   {
     sessionKey: ChatSendSessionKeyString,
     message: Type.String(),
+    model: Type.Optional(NonEmptyString),
+    authProfileId: Type.Optional(NonEmptyString),
+    authProfileSource: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("user")])),
     thinking: Type.Optional(Type.String()),
     deliver: Type.Optional(Type.Boolean()),
     attachments: Type.Optional(Type.Array(Type.Unknown())),

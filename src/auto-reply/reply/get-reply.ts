@@ -9,9 +9,11 @@ import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/workspace.js";
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
+import { updateSessionStore } from "../../config/sessions.js";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
 import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
 import { defaultRuntime } from "../../runtime.js";
+import { applyModelOverrideToSessionEntry } from "../../sessions/model-overrides.js";
 import { normalizeStringEntries } from "../../shared/string-normalization.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
@@ -188,6 +190,48 @@ export async function getReplyFromConfig(
     defaultModel,
     aliasIndex,
   });
+
+  const runtimeModelOverride = resolvedOpts?.runtimeModelOverride?.trim();
+  const runtimeAuthProfileId = resolvedOpts?.runtimeAuthProfileId?.trim();
+  if (
+    sessionEntry &&
+    sessionStore &&
+    sessionKey &&
+    (runtimeModelOverride || runtimeAuthProfileId)
+  ) {
+    const resolvedRuntimeModel = runtimeModelOverride
+      ? resolveModelRefFromString({
+          raw: runtimeModelOverride,
+          defaultProvider,
+          aliasIndex,
+        })
+      : null;
+
+    const runtimeProvider = resolvedRuntimeModel?.ref.provider ?? provider;
+    const runtimeModel = resolvedRuntimeModel?.ref.model ?? model;
+    const { updated } = applyModelOverrideToSessionEntry({
+      entry: sessionEntry,
+      selection: {
+        provider: runtimeProvider,
+        model: runtimeModel,
+        isDefault: runtimeProvider === defaultProvider && runtimeModel === defaultModel,
+      },
+      profileOverride: runtimeAuthProfileId || undefined,
+      profileOverrideSource: resolvedOpts?.runtimeAuthProfileSource ?? "user",
+    });
+
+    provider = runtimeProvider;
+    model = runtimeModel;
+
+    if (updated) {
+      sessionStore[sessionKey] = sessionEntry;
+      if (storePath) {
+        await updateSessionStore(storePath, (store) => {
+          store[sessionKey] = sessionEntry;
+        });
+      }
+    }
+  }
 
   const channelModelOverride = resolveChannelModelOverride({
     cfg,
