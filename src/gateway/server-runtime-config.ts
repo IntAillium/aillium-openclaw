@@ -122,6 +122,11 @@ export async function resolveGatewayRuntimeConfig(params: {
     params.cfg.gateway?.controlUi?.dangerouslyAllowHostHeaderOriginFallback === true;
 
   assertGatewayAuthConfigured(resolvedAuth, params.cfg.gateway?.auth);
+  if (authMode === "token" && !hasToken) {
+    console.warn(
+      "[gateway] WARNING: auth mode is \"token\" but OPENCLAW_GATEWAY_TOKEN is empty/undefined — gateway is running without proper token auth",
+    );
+  }
   if (tailscaleMode === "funnel" && authMode !== "password") {
     throw new Error(
       "tailscale funnel requires gateway auth mode=password (set gateway.auth.password or OPENCLAW_GATEWAY_PASSWORD)",
