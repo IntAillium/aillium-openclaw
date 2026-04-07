@@ -102,6 +102,17 @@ export function startGatewayMaintenanceTimers(params: {
       }
     }
 
+    // Prune orphaned agentRunSeq entries that no longer have active chat runs.
+    for (const runId of params.agentRunSeq.keys()) {
+      if (
+        !params.chatAbortControllers.has(runId) &&
+        !params.chatRunBuffers.has(runId) &&
+        !params.chatRunState.abortedRuns.has(runId)
+      ) {
+        params.agentRunSeq.delete(runId);
+      }
+    }
+
     for (const [runId, entry] of params.chatAbortControllers) {
       if (now <= entry.expiresAtMs) {
         continue;

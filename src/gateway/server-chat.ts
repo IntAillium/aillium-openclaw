@@ -246,11 +246,18 @@ type ToolRecipientEntry = {
 const TOOL_EVENT_RECIPIENT_TTL_MS = 10 * 60 * 1000;
 const TOOL_EVENT_RECIPIENT_FINAL_GRACE_MS = 30 * 1000;
 
+const TOOL_EVENT_RECIPIENT_PRUNE_THRESHOLD = 100;
+
 export function createToolEventRecipientRegistry(): ToolEventRecipientRegistry {
   const recipients = new Map<string, ToolRecipientEntry>();
+  let lastPruneAt = Date.now();
 
-  const prune = () => {
+  const prune = (force = false) => {
     if (recipients.size === 0) {
+      return;
+    }
+    // Only prune when map is large or 60s have passed since last prune.
+    if (!force && recipients.size < TOOL_EVENT_RECIPIENT_PRUNE_THRESHOLD && Date.now() - lastPruneAt < 60_000) {
       return;
     }
     const now = Date.now();
@@ -262,6 +269,7 @@ export function createToolEventRecipientRegistry(): ToolEventRecipientRegistry {
         recipients.delete(runId);
       }
     }
+    lastPruneAt = now;
   };
 
   const add = (runId: string, connId: string) => {
