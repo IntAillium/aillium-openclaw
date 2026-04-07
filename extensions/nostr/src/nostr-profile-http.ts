@@ -85,7 +85,7 @@ async function withPublishLock<T>(accountId: string, fn: () => Promise<T>): Prom
   publishLocks.set(accountId, next);
 
   // Wait for previous operation to complete
-  await prev.catch(() => {});
+  await prev.catch((err) => { console.warn("nostr: previous publish-lock holder failed", err); });
 
   try {
     return await fn();

@@ -36,7 +36,7 @@ export async function authenticate(
     }
 
     // Some Urbit setups require the response body to be read before cookie headers finalize.
-    await response.text().catch(() => {});
+    await response.text().catch((err) => { console.warn("tlon: failed to read login response body", err); });
     const cookie = response.headers.get("set-cookie");
     if (!cookie) {
       throw new UrbitAuthError("missing_cookie", "No authentication cookie received");

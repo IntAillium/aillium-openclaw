@@ -1006,7 +1006,7 @@ export const registerTelegramHandlers = ({
               bot.api.sendMessage(chatId, `⚠️ File too large. Maximum size is ${limitMb}MB.`, {
                 reply_to_message_id: msg.message_id,
               }),
-          }).catch(() => {});
+          }).catch((err) => { warn("telegram: failed to send oversize warning", err); });
         }
         logger.warn({ chatId, error: String(mediaErr) }, oversizeLogMessage);
         return;
@@ -1019,7 +1019,7 @@ export const registerTelegramHandlers = ({
           bot.api.sendMessage(chatId, "⚠️ Failed to download media. Please try again.", {
             reply_to_message_id: msg.message_id,
           }),
-      }).catch(() => {});
+      }).catch((err) => { warn("telegram: failed to send media-error notice", err); });
       return;
     }
 
@@ -1075,7 +1075,7 @@ export const registerTelegramHandlers = ({
       operation: "answerCallbackQuery",
       runtime,
       fn: answerCallbackQuery,
-    }).catch(() => {});
+    }).catch((err) => { warn("telegram: failed to answer callback query", err); });
     try {
       const data = (callback.data ?? "").trim();
       const callbackMessage = callback.message;
