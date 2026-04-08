@@ -27,6 +27,7 @@ export const ChatHistoryParamsSchema = Type.Object(
   {
     sessionKey: NonEmptyString,
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+    maxChars: Type.Optional(Type.Integer({ minimum: 1, maximum: 500_000 })),
   },
   { additionalProperties: false },
 );
@@ -40,6 +41,10 @@ export const ChatSendParamsSchema = Type.Object(
     authProfileSource: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("user")])),
     thinking: Type.Optional(Type.String()),
     deliver: Type.Optional(Type.Boolean()),
+    originatingChannel: Type.Optional(Type.String()),
+    originatingTo: Type.Optional(Type.String()),
+    originatingAccountId: Type.Optional(Type.String()),
+    originatingThreadId: Type.Optional(Type.String()),
     attachments: Type.Optional(Type.Array(Type.Unknown())),
     timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
     systemInputProvenance: Type.Optional(InputProvenanceSchema),
