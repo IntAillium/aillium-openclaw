@@ -10,6 +10,8 @@ import type {
   RuntimeRegistrationAdapter,
   RuntimeRegistrationInput,
   RuntimeRegistrationResult,
+  StaffRoomContextProvider,
+  StaffRoomRetrievalResult,
   TenantSessionMetadata,
   TenantSessionMetadataAdapter,
 } from "./contracts.js";
@@ -58,6 +60,26 @@ class NoopCapsuleLifecycleHook implements CapsuleLifecycleHook {
   }
 }
 
+class NoopStaffRoomContextProvider implements StaffRoomContextProvider {
+  async getAgentContext(
+    _agentId: string,
+    _metadata?: TenantSessionMetadata,
+  ): Promise<string> {
+    // No-op until Aillium Core Staff Room is configured.
+    return "";
+  }
+
+  async retrieveMemory(_params: {
+    agentId?: string;
+    departmentId?: string;
+    query?: string;
+    maxResults?: number;
+    metadata?: TenantSessionMetadata;
+  }): Promise<StaffRoomRetrievalResult> {
+    return { results: [], total_count: 0, agent_context: null };
+  }
+}
+
 export function createDefaultAilliumBoundary(): AilliumIntegrationBoundary {
   return {
     runtimeRegistration: new NoopRuntimeRegistrationAdapter(),
@@ -66,5 +88,6 @@ export function createDefaultAilliumBoundary(): AilliumIntegrationBoundary {
     tenantSessionMetadata: new IdentityTenantSessionMetadataAdapter(),
     contextLifecycle: new NoopContextLifecycleHook(),
     capsuleLifecycle: new NoopCapsuleLifecycleHook(),
+    staffRoom: new NoopStaffRoomContextProvider(),
   };
 }

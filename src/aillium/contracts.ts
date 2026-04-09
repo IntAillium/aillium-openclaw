@@ -107,6 +107,57 @@ export interface CapsuleLifecycleHook {
   onCapsuleLifecycle(event: CapsuleLifecycleEvent): Promise<void>;
 }
 
+/**
+ * Staff Room context provider — retrieves persistent memory and agent identity
+ * context from Aillium Core's Staff Room subsystem.
+ *
+ * This is injected into the agent's system context during session bootstrap
+ * so agents operate with business knowledge, department awareness, and
+ * role-consistent behavior.
+ */
+export interface StaffRoomContextProvider {
+  /**
+   * Fetches the Staff Room context block for an agent.
+   * Returns a structured text summary suitable for LLM system prompt injection.
+   *
+   * @param agentId - The Aillium agent ID to fetch context for
+   * @param metadata - Optional session metadata for scope resolution
+   * @returns Markdown-formatted context string, or empty string if unavailable
+   */
+  getAgentContext(
+    agentId: string,
+    metadata?: TenantSessionMetadata,
+  ): Promise<string>;
+
+  /**
+   * Retrieves scoped memory items for runtime use.
+   * Returns structured results that can be used for RAG-style context assembly.
+   */
+  retrieveMemory(params: {
+    agentId?: string;
+    departmentId?: string;
+    query?: string;
+    maxResults?: number;
+    metadata?: TenantSessionMetadata;
+  }): Promise<StaffRoomRetrievalResult>;
+}
+
+export interface StaffRoomRetrievalResult {
+  results: ReadonlyArray<{
+    entity_type: string;
+    entity_id: string;
+    title: string;
+    summary: string | null;
+    content: string | null;
+    relevance_score: number;
+    memory_scope: string;
+    retention: string;
+    department_id: string | null;
+  }>;
+  total_count: number;
+  agent_context: string | null;
+}
+
 export interface AilliumIntegrationBoundary {
   runtimeRegistration: RuntimeRegistrationAdapter;
   contractAdapter: ContractAdapter;
@@ -114,4 +165,5 @@ export interface AilliumIntegrationBoundary {
   tenantSessionMetadata: TenantSessionMetadataAdapter;
   contextLifecycle?: ContextLifecycleHook;
   capsuleLifecycle?: CapsuleLifecycleHook;
+  staffRoom?: StaffRoomContextProvider;
 }

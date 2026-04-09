@@ -11,6 +11,8 @@ export type {
   RuntimeRegistrationAdapter,
   RuntimeRegistrationInput,
   RuntimeRegistrationResult,
+  StaffRoomContextProvider,
+  StaffRoomRetrievalResult,
   TenantSessionMetadata,
   TenantSessionMetadataAdapter,
 } from "./contracts.js";

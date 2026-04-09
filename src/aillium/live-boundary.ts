@@ -19,6 +19,8 @@ import type {
   RuntimeRegistrationAdapter,
   RuntimeRegistrationInput,
   RuntimeRegistrationResult,
+  StaffRoomContextProvider,
+  StaffRoomRetrievalResult,
   TenantSessionMetadata,
   TenantSessionMetadataAdapter,
 } from "./contracts.js";
@@ -201,6 +203,75 @@ class LiveCapsuleLifecycleHook implements CapsuleLifecycleHook {
   }
 }
 
+class LiveStaffRoomContextProvider implements StaffRoomContextProvider {
+  constructor(private readonly config: AilliumCoreConnectionConfig) {}
+
+  async getAgentContext(
+    agentId: string,
+    metadata?: TenantSessionMetadata,
+  ): Promise<string> {
+    try {
+      const response = await fetch(
+        `${this.config.baseUrl}/staff-room/agent-context/${agentId}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-aillium-runtime-token": this.config.syncToken,
+          },
+          signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+        },
+      );
+
+      if (!response.ok) return "";
+
+      const result = (await response.json()) as { context?: string };
+      return result.context ?? "";
+    } catch {
+      // Staff Room context retrieval is best-effort; do not block agent startup
+      return "";
+    }
+  }
+
+  async retrieveMemory(params: {
+    agentId?: string;
+    departmentId?: string;
+    query?: string;
+    maxResults?: number;
+    metadata?: TenantSessionMetadata;
+  }): Promise<StaffRoomRetrievalResult> {
+    try {
+      const qs = new URLSearchParams();
+      if (params.agentId) qs.set("agent_id", params.agentId);
+      if (params.departmentId) qs.set("department_id", params.departmentId);
+      if (params.query) qs.set("query", params.query);
+      if (params.maxResults) qs.set("max_results", String(params.maxResults));
+      const queryString = qs.toString();
+
+      const response = await fetch(
+        `${this.config.baseUrl}/staff-room/retrieve${queryString ? `?${queryString}` : ""}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-aillium-runtime-token": this.config.syncToken,
+          },
+          signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+        },
+      );
+
+      if (!response.ok) {
+        return { results: [], total_count: 0, agent_context: null };
+      }
+
+      return (await response.json()) as StaffRoomRetrievalResult;
+    } catch {
+      // Best-effort retrieval; return empty results on failure
+      return { results: [], total_count: 0, agent_context: null };
+    }
+  }
+}
+
 export function createLiveAilliumBoundary(
   config: AilliumCoreConnectionConfig,
 ): AilliumIntegrationBoundary {
@@ -211,5 +282,6 @@ export function createLiveAilliumBoundary(
     tenantSessionMetadata: new LiveTenantSessionMetadataAdapter(),
     contextLifecycle: new LiveContextLifecycleHook(config),
     capsuleLifecycle: new LiveCapsuleLifecycleHook(config),
+    staffRoom: new LiveStaffRoomContextProvider(config),
   };
 }
