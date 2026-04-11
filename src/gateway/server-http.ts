@@ -792,6 +792,10 @@ export function createGatewayHttpServer(opts: {
           run: () => handleHooksRequest(req, res),
         },
         {
+          name: "mobile-avatar",
+          run: () => handleMobileAvatarRequest(req, res, requestPath),
+        },
+        {
           name: "tools-invoke",
           run: () =>
             handleToolsInvokeHttpRequest(req, res, {
@@ -993,4 +997,47 @@ export function attachGatewayUpgradeHandler(opts: {
       socket.destroy();
     });
   });
+}
+
+async function handleMobileAvatarRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  requestPath: string,
+): Promise<boolean> {
+  if (requestPath !== "/mobile/avatar") {
+    return false;
+  }
+
+  const authHeader = req.headers["authorization"];
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    res.statusCode = 401;
+    res.end("Unauthorized");
+    return true;
+  }
+
+  const token = authHeader.split(" ")[1];
+  const coreUrl = process.env.AILLIUM_CORE_URL || 'http://aillium-core:3000';
+  
+  try {
+    const response = await fetch(`${coreUrl}/mobile/avatar`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'X-Tenant-Id': (req.headers['x-tenant-id'] as string) || '',
+        'Accept': 'application/json',
+      }
+    });
+
+    const data = await response.json();
+    res.statusCode = response.status;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.end(JSON.stringify(data));
+  } catch (err) {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ error: "Failed to fetch avatar aggregate from core" }));
+  }
+
+  return true;
 }
