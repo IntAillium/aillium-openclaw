@@ -796,6 +796,10 @@ export function createGatewayHttpServer(opts: {
           run: () => handleMobileAvatarRequest(req, res, requestPath),
         },
         {
+          name: "mobile-avatar-interact",
+          run: () => handleMobileAvatarInteractRequest(req, res, requestPath),
+        },
+        {
           name: "tools-invoke",
           run: () =>
             handleToolsInvokeHttpRequest(req, res, {
@@ -1038,6 +1042,53 @@ async function handleMobileAvatarRequest(
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.end(JSON.stringify({ error: "Failed to fetch avatar aggregate from core" }));
   }
+
+  return true;
+}
+
+async function handleMobileAvatarInteractRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  requestPath: string,
+): Promise<boolean> {
+  if (requestPath !== "/mobile/avatar/interact") {
+    return false;
+  }
+
+  const authHeader = req.headers["authorization"];
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    res.statusCode = 401;
+    res.end("Unauthorized");
+    return true;
+  }
+
+  const token = authHeader.split(" ")[1];
+  const coreUrl = process.env.AILLIUM_CORE_URL || 'http://aillium-core:3000';
+  
+  // Read body
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', async () => {
+    try {
+      const response = await fetch(`${coreUrl}/mobile/avatar/interact`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Tenant-Id': (req.headers['x-tenant-id'] as string) || '',
+          'Content-Type': 'application/json',
+        },
+        body
+      });
+
+      const data = await response.json();
+      res.statusCode = response.status;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(data));
+    } catch (err) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: "Failed to interact with avatar" }));
+    }
+  });
 
   return true;
 }
