@@ -1020,7 +1020,12 @@ async function handleMobileAvatarRequest(
     return true;
   }
 
-  const coreUrl = process.env.AILLIUM_CORE_URL || "http://aillium-core:3000";
+  const coreUrl = process.env.AILLIUM_CORE_URL?.trim();
+  if (!coreUrl) {
+    res.statusCode = 503;
+    res.end("Aillium Core URL not configured");
+    return true;
+  }
 
   const allowedOrigin = process.env.AILLIUM_PORTAL_ORIGIN;
   const requestOrigin = req.headers.origin;
@@ -1069,7 +1074,12 @@ async function handleMobileAvatarInteractRequest(
     return true;
   }
 
-  const coreUrl = process.env.AILLIUM_CORE_URL || "http://aillium-core:3000";
+  const coreUrl = process.env.AILLIUM_CORE_URL?.trim();
+  if (!coreUrl) {
+    res.statusCode = 503;
+    res.end("Aillium Core URL not configured");
+    return true;
+  }
 
   const allowedOrigin = process.env.AILLIUM_PORTAL_ORIGIN;
   const requestOrigin = req.headers.origin;
