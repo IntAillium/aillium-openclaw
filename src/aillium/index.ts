@@ -20,3 +20,5 @@ export type {
 export { createDefaultAilliumBoundary } from "./defaults.js";
 export { createLiveAilliumBoundary } from "./live-boundary.js";
 export type { AilliumCoreConnectionConfig } from "./live-boundary.js";
+export { resolveAilliumBoundary, __resetAilliumBoundaryForTest } from "./init.js";
+export type { AilliumBoundaryEnv } from "./init.js";
