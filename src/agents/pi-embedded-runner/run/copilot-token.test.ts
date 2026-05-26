@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CopilotTokenManager } from "./copilot-token.js";
+import { CopilotTokenManager, type CopilotAuthStorage } from "./copilot-token.js";
 
 const resolveCopilotApiTokenMock = vi.fn();
 
@@ -10,12 +10,12 @@ vi.mock("../../../providers/github-copilot-token.js", () => ({
 }));
 
 describe("CopilotTokenManager", () => {
-  let setRuntimeApiKey: ReturnType<typeof vi.fn>;
-  let authStorage: { setRuntimeApiKey: typeof setRuntimeApiKey };
+  let setRuntimeApiKey: ReturnType<typeof vi.fn<(provider: string, token: string) => void>>;
+  let authStorage: CopilotAuthStorage;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    setRuntimeApiKey = vi.fn();
+    setRuntimeApiKey = vi.fn<(provider: string, token: string) => void>();
     authStorage = { setRuntimeApiKey };
   });
 
@@ -59,24 +59,23 @@ describe("CopilotTokenManager", () => {
   });
 
   it("coalesces concurrent refreshes via refreshInFlight", async () => {
-    let resolveNow: ((value: { token: string; expiresAt: number }) => void) | null = null;
+    type ResolveToken = (value: { token: string; expiresAt: number }) => void;
+    const holder: { resolve: ResolveToken | null } = { resolve: null };
     resolveCopilotApiTokenMock.mockImplementation(
       () =>
         new Promise<{ token: string; expiresAt: number }>((resolve) => {
-          resolveNow = resolve;
+          holder.resolve = resolve;
         }),
     );
     const manager = new CopilotTokenManager({ provider: "github-copilot", authStorage });
     manager.setCredentials("gho_test", Date.now() + 24 * 60 * 60 * 1000);
     try {
       const a = manager.refresh("first");
-      // The dynamic import in refresh() is async; wait until the mock is
-      // actually invoked so resolveNow is wired up before we call it.
-      while (!resolveNow) {
+      while (!holder.resolve) {
         await new Promise((r) => setImmediate(r));
       }
       const b = manager.refresh("second");
-      resolveNow({ token: "ghu_only", expiresAt: Date.now() + 60_000 });
+      holder.resolve({ token: "ghu_only", expiresAt: Date.now() + 60_000 });
       await Promise.all([a, b]);
       expect(resolveCopilotApiTokenMock).toHaveBeenCalledTimes(1);
     } finally {
