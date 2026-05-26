@@ -1,4 +1,5 @@
 import path from "node:path";
+import { resolveAilliumBoundary } from "../aillium/init.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { getActiveEmbeddedRunCount } from "../agents/pi-embedded-runner/runs.js";
 import { registerSkillsChangeListener } from "../agents/skills/refresh.js";
@@ -283,6 +284,27 @@ export async function startGatewayServer(
   });
 
   let configSnapshot = await readConfigFileSnapshot();
+
+  // Initialize Aillium integration boundary. When AILLIUM_CORE_URL and
+  // AILLIUM_RUNTIME_SYNC_TOKEN are set, this registers the runtime with
+  // Aillium Core; otherwise the no-op default is used.
+  const ailliumBoundary = resolveAilliumBoundary();
+  const runtimeId = process.env.OPENCLAW_RUNTIME_ID || `openclaw-${process.pid}`;
+  const runtimeVersion = process.env.OPENCLAW_RUNTIME_VERSION || "unknown";
+  ailliumBoundary.runtimeRegistration
+    .register({ runtimeId, runtimeVersion, capabilities: [] })
+    .then((result) => {
+      if (result.registered) {
+        log.info(`gateway: registered runtime with Aillium Core: ${result.message ?? ""}`);
+      } else if (result.message && !result.message.includes("No Aillium runtime registration adapter")) {
+        // Live adapter returned non-registered: log the reason; default adapter is silent.
+        log.warn(`gateway: Aillium runtime registration declined: ${result.message}`);
+      }
+    })
+    .catch((err) => {
+      log.warn(`gateway: Aillium runtime registration error: ${err instanceof Error ? err.message : String(err)}`);
+    });
+
   if (configSnapshot.legacyIssues.length > 0) {
     if (isNixMode) {
       throw new Error(
