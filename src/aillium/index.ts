@@ -20,3 +20,14 @@ export type {
 export { createDefaultAilliumBoundary } from "./defaults.js";
 export { createLiveAilliumBoundary } from "./live-boundary.js";
 export type { AilliumCoreConnectionConfig } from "./live-boundary.js";
+
+export {
+  fetchStaffRoomAgentContext,
+  getAilliumBoundary,
+  isAilliumCoreConfigured,
+  registerOperatorRuntimeBestEffort,
+  resetAilliumBoundary,
+  resolveAilliumCoreConfig,
+  resolveRuntimeSessionKey,
+} from "./boundary-runtime.js";
+export type { OperatorRuntimeSyncOptions } from "./boundary-runtime.js";

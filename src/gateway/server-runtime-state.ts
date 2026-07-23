@@ -31,6 +31,7 @@ import {
 import type { DedupeEntry } from "./server-shared.js";
 import { createGatewayHooksRequestHandler } from "./server/hooks.js";
 import { listenGatewayHttpServer } from "./server/http-listen.js";
+import { registerOperatorRuntimeBestEffort } from "../aillium/boundary-runtime.js";
 import {
   createGatewayPluginRequestHandler,
   shouldEnforceGatewayAuthForPluginPath,
@@ -188,6 +189,15 @@ export async function createGatewayRuntimeState(params: {
   if (!httpServer) {
     throw new Error("Gateway HTTP server failed to start");
   }
+
+  // Aillium: once the gateway socket is bound, best-effort sync this operator
+  // runtime with Aillium Core so the master agent's continuity/pulse layer knows
+  // the runtime is live. No-op unless AILLIUM_CORE_URL + a runtime token and a
+  // runtime session key are configured; never blocks startup and never throws.
+  void registerOperatorRuntimeBestEffort({
+    metadata: { bindHost: params.bindHost, port: params.port },
+    log: params.log,
+  });
 
   const wss = new WebSocketServer({
     noServer: true,
