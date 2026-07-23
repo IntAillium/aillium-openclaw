@@ -118,6 +118,34 @@ The wrapper is a faithful decorator: no-op passthrough when Core is unconfigured
 preserves the presence of every optional engine method, and never changes the
 underlying engine's return values apart from the Staff Room prompt addition.
 
+### Delegation loop (Core): now closes through an approval gate
+
+Finding: the delegation *mechanics* worked (master -> coordinator run ->
+department tasks -> sub-agent sessions -> a technical VERIFICATION_RUN), but the
+run then **dead-ended at COMPLETED with no approval**. The full `ApprovalQueueService`
+(submit, resolve, escalate, OOO, approver routing) existed but had **zero
+callers** — a fully-built, unwired island. There was also **no
+company-instructions concept** for managers to proof work against.
+
+Fixed (Core, compiler-verified): coordinator runs now pass an **approval gate**.
+On finalize, the run submits its result to the approval queue (routed to the
+owner via `submitForApproval`) and transitions to a new `AWAITING_APPROVAL`
+status, holding there (the daemon executor treats an unchanged status as a clean
+pause, so it neither spins nor trips the cancel-retry limit). Resolving the
+approval re-enqueues the run via the job queue (no circular DI): APPROVED ->
+finalize + COMPLETED, REJECTED/expired -> FAILED. Gate is on by default and can
+be disabled with `COORDINATOR_REQUIRE_APPROVAL=false`.
+
+Files: `prisma/schema.prisma` (`AWAITING_APPROVAL`, `CoordinatorRun.approvalId`
++ migration), `coordinator-orchestration.service.ts`, `approval-queue.service.ts`,
+`daemon-coordinator-executor.service.ts`.
+
+Still open (P1 remainder): (a) **company-instructions proofing** — a
+tenant-level instructions model + a manager LLM review step that checks
+sub-agent output against house rules before the run is submitted; (b)
+**solo-run master auto-approval** — for a solo business, let the master
+auto-approve low-risk runs while still gating high-risk to the human owner.
+
 ### Not an OpenClaw wire: capsule lifecycle
 
 `capsuleLifecycle` in the boundary has **no OpenClaw source** — "execution
@@ -148,13 +176,16 @@ Core tier, not a missing OpenClaw wire.
 
 ### P1 — coherence and the delegation loop
 
-5. **Document the Core tier boundary** (NestJS control plane vs Rust worker) and
-   dedupe the Rust worker loop vs NestJS `operator-runtime-worker` overlap.
-6. **Master → department manager → sub-agent delegation.** Verify
-   `coordinator-orchestration.service.ts` + `agent-teams` + `departments` +
-   `approval-queue` form a closed loop (manager proofs work vs company
-   instructions → human/master approval). Fill any dead seams the same way.
-7. **Fix portal/docs drift.** README claims Next.js; it is React + Vite.
+5. **Done:** delegation loop now closes through the coordinator approval gate
+   (see the delegation-loop finding above).
+6. **Done:** portal doc drift fixed (README now says React + Vite).
+7. **Remaining — company-instructions proofing.** Add a tenant-level company
+   instructions model + a manager review step (LLM check of sub-agent output
+   against house rules) before the run is submitted for approval.
+8. **Remaining — solo-run master auto-approval.** Detect solo businesses and let
+   the master auto-approve low-risk runs, keeping the human gate for high-risk.
+9. **Remaining — document the Core tier boundary** (NestJS control plane vs Rust
+   worker) and dedupe the Rust worker loop vs NestJS `operator-runtime-worker`.
 
 ### P2 — complete the surface
 
