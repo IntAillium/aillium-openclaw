@@ -22,31 +22,49 @@ intended vision: master agent, staff-room memory, autonomous pulse, OOO cover,
 approval queue, departments/coordinator, EOD reports). The problem the founder
 describes — "features not linking together" — is accurate but specific: the
 pieces are built, and many seams are wired, but several high-value seams are
-**dead code** or **duplicated across languages**, so the whole never behaves as
-one organism.
+**dead code**, so the whole never behaves as one organism.
 
-The three structural issues, in order of leverage:
+The two structural issues, in order of leverage:
 
-1. **Dead integration surfaces.** Purpose-built adapters exist but are never
-   instantiated (flagship: OpenClaw's `src/aillium/` boundary — fixed in part by
-   this change; see below).
-2. **Duplicated control plane across languages.** `aillium-core` ships *two*
-   runtimes: a Rust daemon and a NestJS API. Only the NestJS one is in the live
-   integration path. This is the "different languages" incoherence.
-3. **Two unpopulated repos** on the critical path (`Aillium-code` empty,
+1. **Dead integration surfaces.** Purpose-built adapters exist but were never
+   instantiated (flagship: OpenClaw's `src/aillium/` boundary — now wired; see
+   "Changes landed" below).
+2. **Two unpopulated repos** on the critical path (`Aillium-code` empty,
    `aillium-remote` a docs-only stub).
+
+## Architecture: Core is two complementary tiers (not a duplicate)
+
+`aillium-core` ships two services in two languages, and they are **complementary
+tiers, not competing control planes** (confirmed from `docker-compose.internal.yml`):
+
+- **`core-api`** — NestJS + Prisma, port 3000, built by `Dockerfile.nestjs`. This
+  is the **control plane and system of record**: ~71 controllers (tenancy, RBAC,
+  master agent, staff-room, approvals, tasks). The portal, OpenClaw, the Rust
+  daemon, and the operator-runtime-worker all integrate against it.
+- **`core`** — Rust `aillium-daemon`, port 4000, built by the root `Dockerfile`
+  (10-crate workspace: conscious/subconscious runtimes, coordinator, policy, db,
+  daemon-rt worker loop). It is a **client of `core-api`**
+  (`AILLIUM_CORE_BASE_URL: http://core-api:3000/api`), i.e. the autonomous
+  execution/worker tier, not a second source of truth.
+
+**Decision (recorded): the runtime of record is NestJS `core-api`.** The Rust
+daemon stays as the autonomous worker tier; do not fold control-plane authority
+(tenancy, policy, approvals) into it. The remaining coherence work is to
+document the tier boundary and dedupe any overlap between the Rust worker loop
+and the NestJS `operator-runtime-worker` (both post to `operator-sync` /
+`execution-capsules/runtime/lifecycle`).
 
 ## Repository status
 
 | Repo | Role | Language / stack | State |
 |------|------|------------------|-------|
-| `aillium-core` | Control plane (tenancy, RBAC, tasks, approvals, master agent, staff-room, autonomous pulse) | **NestJS + Prisma** (port 3000) **and** a **Rust** 10-crate workspace → `aillium-daemon` (port 4000) | NestJS side is the live control plane (~71 controllers). Rust workspace is a parallel track not in the compose/integration path. |
-| `aillium-openclaw` | Runtime / orchestration substrate (agent runtime, browser control, gateway, hooks) | TypeScript (fork of OpenClaw) | Substantial. Aillium boundary in `src/aillium/` existed but was **dead** until this change. |
+| `aillium-core` | Control plane (`core-api`, NestJS, :3000) + autonomous daemon (`core`, Rust, :4000, client of core-api) | NestJS + Prisma **and** Rust workspace | Both real and complementary. `core-api` is the system of record. |
+| `aillium-openclaw` | Runtime / orchestration substrate (agent runtime, browser control, gateway, hooks) | TypeScript (fork of OpenClaw) | Substantial. Aillium boundary now wired to Core (this work). |
 | `aillium-portal` | Operator dashboard / AI command UI | **React 18 + Vite** (README says Next.js — doc is wrong) | Real UI. `src/pages`, `src/components`, `src/lib`. |
 | `aillium-remote-meshcentral` | Remote-support / device session plane | JavaScript (fork of MeshCentral) | Large, real fork with `aillium/` adapter dir. |
 | `aillium-schemas` | Shared contracts | JSON Schema + TS package + Python package | Real. Schemas for `core`, `openclaw`, `meshcentral`, `larksuite`, `executor`. |
 | `aillium-integrations` | Connectors / workflows (n8n, Lark) | TypeScript | Small but real: `connectors/registry`, `webhooks/events`, `workflows/templates`, `health/check`. |
-| `platform` | Docker Compose orchestration + deploy scripts | Compose / shell | Real. Wires core (3000) + portal + TARS worker + OpenClaw + n8n + Postgres. |
+| `platform` | Docker Compose orchestration + deploy scripts | Compose / shell | Real. Wires core-api + core + portal + OpenClaw + worker + n8n + Postgres. |
 | `aillium-remote` | (intended remote piece) | — | **Stub**: only README/LICENSE/guardrails. Real remote lives in `aillium-remote-meshcentral`. |
 | `Aillium-code` | Coding agent, "based on opencode" | — | **Empty** on this branch (only `.git`). opencode not yet vendored. |
 
@@ -55,45 +73,44 @@ The three structural issues, in order of leverage:
 ### Connected (working call paths)
 
 - **OpenClaw gateway → Core (mobile avatar).** `src/gateway/server-http.ts`
-  proxies `/mobile/avatar` and `/mobile/avatar/interact` to
-  `AILLIUM_CORE_URL` (`server-http.ts:1023`, `:1066`). Matches Core's
-  `mobile.controller.ts`.
+  proxies `/mobile/avatar` and `/mobile/avatar/interact` to `AILLIUM_CORE_URL`
+  (`server-http.ts:1023`, `:1066`). Matches Core's `mobile.controller.ts`.
 - **Core ← OpenClaw MCP/desktop.** `src/gateway/aillium-mcp-http.ts` serves
   `/api/aillium/mcp/*` and `/api/aillium/desktop/*` for Core to drive runtime
   tools/desktop actions. Wired into `server-http.ts:30`.
-- **Boundary contracts vs Core endpoints.** Every endpoint the boundary calls
-  exists in Core and the payload shapes match:
-  - `POST /master-agent/runtime/operator-sync` ← `master-agent-runtime-sync.controller.ts:12`
+- **Runtime register + sync (NEW this work).** OpenClaw's boundary now registers
+  the runtime with Core and can sync state. Endpoints on `core-api`:
+  - `POST /master-agent/runtime/register` ← `master-agent-runtime-sync.controller.ts` (new)
+  - `POST /master-agent/runtime/operator-sync` ← same controller
   - `POST /master-agent/runtime/context-lifecycle` ← same controller
   - `POST /execution-capsules/runtime/lifecycle` ← `execution-capsules.controller.ts:236`
   - `GET /staff-room/agent-context/:agentId` ← `staff-room-dashboard.controller.ts:45`
   - `GET /staff-room/retrieve` ← `staff-room-dashboard.controller.ts:20`
 
-### Dead (built, never called) — flagship gap
+### Changes landed (this work)
 
-- **OpenClaw's entire `src/aillium/` boundary.** `createLiveAilliumBoundary` /
-  `createDefaultAilliumBoundary` (registration, evidence callbacks,
-  context-lifecycle, capsule-lifecycle, Staff Room context) were exported from
-  `src/aillium/index.ts` and imported **nowhere** in the runtime. Result: Core's
-  master-agent continuity/pulse services (`master-agent-continuity.service.ts`,
-  `master-agent-pulse.service.ts`) had no runtime feeding them evidence, so the
-  "living master agent" could not actually observe the runtime.
+- **OpenClaw's `src/aillium/` boundary is now instantiated.** Added
+  `src/aillium/boundary-runtime.ts` (single composition root; env-driven
+  live/default selection) and wired a best-effort registration at gateway bind
+  (`src/gateway/server-runtime-state.ts`). Runtime signals can now reach Core.
+- **Resolved the register/operator-sync mismatch.** Previously the boundary's
+  `register()` posted to `operator-sync`, which only *updates an existing*
+  master-agent session (it 404s on an unknown key) — so a runtime could not
+  self-register. Added `POST /master-agent/runtime/register` on `core-api`
+  (`registerRuntime()` in `master-agent-runtime-sync.service.ts`): it resolves
+  the tenant's enabled master-agent profile and creates or reactivates a
+  `MasterAgentSession`, returning the `runtime_session_key` the runtime then uses
+  for `operator-sync`. The boundary now calls this endpoint with `AILLIUM_TENANT_ID`.
 
-  **Fixed here (partial):** added `src/aillium/boundary-runtime.ts` as the single
-  composition root (env-driven live/default selection + best-effort helpers) and
-  wired a best-effort operator-sync at gateway bind
-  (`src/gateway/server-runtime-state.ts`). Remaining call sites below (P0).
+### Still dead / not yet wired (P0 remainder)
 
-### Mismatched (both ends exist, semantics differ)
+The composition root exists; these OpenClaw call sites still need wiring through
+`getAilliumBoundary()` (all against Core endpoints that already exist):
 
-- **`register()` vs `operator-sync`.** The boundary's
-  `RuntimeRegistrationAdapter.register()` reads like "announce a new runtime
-  instance", but Core's `operator-sync` *updates an existing* `masterAgentSession`
-  (`master-agent-runtime-sync.service.ts` throws `NotFoundException` when
-  `runtime_session_key` has no session). So a runtime cannot self-register;
-  something must first create the Core session and hand its key to the runtime
-  (`AILLIUM_RUNTIME_SESSION_KEY`). Core has **no** generic runtime-instance
-  registry endpoint. Decide: add one, or formalize session-key handoff.
+- context-engine lifecycle (`afterTurn`/`compact`/`bootstrap`) → `contextLifecycle`;
+- evidence emission on tool/turn completion → `evidenceHooks`;
+- execution-capsule transitions → `capsuleLifecycle`;
+- Staff Room context injection at agent bootstrap → `fetchStaffRoomAgentContext`.
 
 ### Stubbed / empty
 
@@ -102,51 +119,49 @@ The three structural issues, in order of leverage:
 
 ## Prioritized roadmap
 
-### P0 — make the master agent actually observe its runtime
+### P0 — make the master agent observe its runtime
 
-1. **Session-key handoff.** When Core spawns a master-agent session, pass its
-   `openclawSessionKey` to the OpenClaw runtime (env or session metadata) so
-   `operator-sync` lands instead of 404ing. (Depends on the register/operator-sync
-   decision above.)
-2. **Wire the remaining boundary call sites** through
-   `getAilliumBoundary()` (all verified against existing Core endpoints):
-   - context-engine lifecycle (`afterTurn`/`compact`/`bootstrap`) →
-     `contextLifecycle.onContextLifecycle`;
-   - evidence emission on tool/turn completion → `evidenceHooks`;
-   - execution-capsule transitions → `capsuleLifecycle`;
-   - Staff Room context injection at agent bootstrap → `fetchStaffRoomAgentContext`.
-3. **End-to-end smoke:** boundary → operator-sync → master-agent session row →
+1. **Done:** runtime register endpoint + boundary composition + startup register.
+2. **Deploy plumbing:** set `AILLIUM_TENANT_ID` (and the runtime token) on the
+   OpenClaw service in compose so registration lands per tenant.
+3. **Wire the remaining boundary call sites** (context lifecycle, evidence,
+   capsules, Staff Room injection) through `getAilliumBoundary()`.
+4. **End-to-end smoke:** register → operator-sync → master-agent session row →
    portal introspection view.
 
 ### P1 — coherence and the delegation loop
 
-4. **Resolve the Rust-vs-NestJS core.** Document which is source of truth
-   (NestJS, per `IMPLEMENTATION_LOG.md`), and either retire the Rust daemon from
-   the runtime path or define a crisp boundary. Right now it is dead weight and a
-   source of "different languages" confusion.
-5. **Master → department manager → sub-agent delegation.** Verify
+5. **Document the Core tier boundary** (NestJS control plane vs Rust worker) and
+   dedupe the Rust worker loop vs NestJS `operator-runtime-worker` overlap.
+6. **Master → department manager → sub-agent delegation.** Verify
    `coordinator-orchestration.service.ts` + `agent-teams` + `departments` +
    `approval-queue` form a closed loop (manager proofs work vs company
    instructions → human/master approval). Fill any dead seams the same way.
-6. **Fix portal/docs drift.** README claims Next.js; it is React + Vite. Align
-   docs and confirm the portal's Core API base + realtime (WS/SSE) endpoints
-   resolve.
+7. **Fix portal/docs drift.** README claims Next.js; it is React + Vite.
 
 ### P2 — complete the surface
 
-7. **Populate `Aillium-code`** from latest opencode as a deliberate vendoring
-   task (its own session; large external import).
-8. **Email/calendar monitoring + self-prompting pulse** end to end
-   (`ai-mailbox.controller.ts`, `master-agent-pulse-scheduler.service.ts`,
-   `automations`), including OOO cover (`ooo.controller.ts`).
-9. **Decommission or formalize `aillium-remote`** in favor of
-   `aillium-remote-meshcentral`.
+8. **Skill-creation engine (natural language → agent skills).** The OS needs a
+   way for a business to *train* its master, department, and sub-agents: take a
+   plain-language request ("chase overdue invoices weekly") and turn it into a
+   reusable skill bound to the right agent(s). Data model already exists
+   (`MasterAgentSkillBinding`, `skills.controller.ts`, `ai-builder.controller.ts`);
+   build the NL-to-skill authoring flow + portal UI on top. Founder priority:
+   after P0/P1.
+9. **Populate `Aillium-code`** from latest opencode (its own session; large
+   external import).
+10. **Email/calendar monitoring + self-prompting pulse** end to end
+    (`ai-mailbox.controller.ts`, `master-agent-pulse-scheduler.service.ts`,
+    `automations`), including OOO cover (`ooo.controller.ts`).
+11. **Decommission or formalize `aillium-remote`** in favor of
+    `aillium-remote-meshcentral`.
 
-## Key decisions the founder should make
+## Decisions
 
-1. **Core runtime of record:** NestJS only, or NestJS + Rust with a defined
-   split? (Blocks P1.)
-2. **Runtime identity model:** add a Core runtime-registry endpoint, or keep the
-   session-key handoff model? (Blocks P0.)
-3. **opencode vendoring:** confirm target upstream + license posture before
-   populating `Aillium-code`.
+1. **Core runtime of record: NestJS `core-api`.** Rust daemon stays as the
+   autonomous worker tier (client of core-api); no control-plane authority moves
+   into it. (Decided.)
+2. **Runtime identity: proper register endpoint added** (`.../runtime/register`),
+   rather than overloading operator-sync. (Decided + implemented here.)
+3. **opencode vendoring: deferred** to after the skill-creation engine; confirm
+   upstream + license posture before populating `Aillium-code`. (Deferred.)

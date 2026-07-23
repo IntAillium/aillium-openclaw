@@ -29,5 +29,6 @@ export {
   resetAilliumBoundary,
   resolveAilliumCoreConfig,
   resolveRuntimeSessionKey,
+  resolveTenantId,
 } from "./boundary-runtime.js";
 export type { OperatorRuntimeSyncOptions } from "./boundary-runtime.js";

@@ -39,7 +39,13 @@ const DEFAULT_RUNTIME_CAPABILITIES: readonly string[] = Object.freeze([
 
 export interface OperatorRuntimeSyncOptions {
   /**
-   * Session key binding this runtime to an Aillium Core master-agent session.
+   * Tenant this runtime belongs to. Required for registration (Core binds the
+   * runtime to the tenant's enabled master-agent profile). Falls back to
+   * AILLIUM_TENANT_ID.
+   */
+  tenantId?: string;
+  /**
+   * Existing session key to reactivate instead of creating a new session.
    * Falls back to AILLIUM_RUNTIME_SESSION_KEY / AILLIUM_RUNTIME_ID env vars.
    */
   runtimeSessionKey?: string;
@@ -117,14 +123,20 @@ export function resolveRuntimeSessionKey(explicit?: string): string | undefined 
   );
 }
 
+/** Resolve the tenant this runtime registers under (AILLIUM_TENANT_ID). */
+export function resolveTenantId(explicit?: string): string | undefined {
+  return explicit?.trim() || trimmedEnv("AILLIUM_TENANT_ID");
+}
+
 /**
- * Best-effort: sync this operator runtime with Aillium Core.
+ * Best-effort: register this operator runtime with Aillium Core.
  *
- * No-op (returns false) unless Aillium Core is configured AND a runtime session
- * key is available — Core's operator-sync endpoint updates an existing
- * master-agent session, so a session key is required for the call to land.
- * Never throws; failures are logged and swallowed so a Core outage cannot block
- * gateway startup or agent execution.
+ * Calls Core's runtime register endpoint, which binds the runtime to the
+ * tenant's enabled master-agent profile and returns a session key that
+ * subsequent operator-sync calls reuse. No-op (returns false) unless Aillium
+ * Core is configured AND a tenant id (or an existing session key to reactivate)
+ * is available. Never throws; failures are logged and swallowed so a Core
+ * outage cannot block gateway startup or agent execution.
  */
 export async function registerOperatorRuntimeBestEffort(
   options: OperatorRuntimeSyncOptions = {},
@@ -132,11 +144,12 @@ export async function registerOperatorRuntimeBestEffort(
   if (!isAilliumCoreConfigured()) {
     return false;
   }
+  const tenantId = resolveTenantId(options.tenantId);
   const runtimeSessionKey = resolveRuntimeSessionKey(options.runtimeSessionKey);
-  if (!runtimeSessionKey) {
+  if (!tenantId && !runtimeSessionKey) {
     options.log?.info(
-      "aillium: Core is configured but no runtime session key is set; " +
-        "skipping operator-sync (set AILLIUM_RUNTIME_SESSION_KEY to bind this runtime to a Core session)",
+      "aillium: Core is configured but neither AILLIUM_TENANT_ID nor a runtime session key is set; " +
+        "skipping runtime registration",
     );
     return false;
   }
@@ -145,25 +158,26 @@ export async function registerOperatorRuntimeBestEffort(
     options.runtimeVersion?.trim() || trimmedEnv("OPENCLAW_VERSION") || "unknown";
   try {
     const result = await getAilliumBoundary().runtimeRegistration.register({
-      runtimeId: runtimeSessionKey,
+      runtimeId: runtimeSessionKey ?? `openclaw-gateway-${hostname()}`,
       runtimeVersion,
       capabilities: options.capabilities ?? DEFAULT_RUNTIME_CAPABILITIES,
       metadata: {
-        runtimeSessionKey,
+        ...(tenantId ? { tenantId } : {}),
+        ...(runtimeSessionKey ? { runtimeSessionKey } : {}),
         host: hostname(),
         ...(options.metadata ?? {}),
       },
     });
     if (result.registered) {
       options.log?.info(
-        `aillium: operator runtime synced with Aillium Core (${result.externalRuntimeRef ?? runtimeSessionKey})`,
+        `aillium: operator runtime registered with Aillium Core (session ${result.externalRuntimeRef ?? "unknown"})`,
       );
     } else {
-      options.log?.warn(`aillium: operator-sync not accepted: ${result.message ?? "unknown"}`);
+      options.log?.warn(`aillium: runtime registration not accepted: ${result.message ?? "unknown"}`);
     }
     return result.registered;
   } catch (err) {
-    options.log?.warn(`aillium: operator-sync failed: ${String(err)}`);
+    options.log?.warn(`aillium: runtime registration failed: ${String(err)}`);
     return false;
   }
 }
