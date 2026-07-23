@@ -27,8 +27,14 @@ export {
   isAilliumCoreConfigured,
   registerOperatorRuntimeBestEffort,
   resetAilliumBoundary,
+  resolveAgentId,
   resolveAilliumCoreConfig,
   resolveRuntimeSessionKey,
   resolveTenantId,
 } from "./boundary-runtime.js";
 export type { OperatorRuntimeSyncOptions } from "./boundary-runtime.js";
+
+export {
+  resetStaffRoomCache,
+  wrapContextEngineForAillium,
+} from "./context-engine-forwarding.js";

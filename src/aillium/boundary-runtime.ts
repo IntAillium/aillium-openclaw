@@ -129,6 +129,14 @@ export function resolveTenantId(explicit?: string): string | undefined {
 }
 
 /**
+ * Resolve the Aillium agent identity this runtime acts as (AILLIUM_AGENT_ID),
+ * used to fetch the agent's Staff Room context for system-prompt injection.
+ */
+export function resolveAgentId(explicit?: string): string | undefined {
+  return explicit?.trim() || trimmedEnv("AILLIUM_AGENT_ID");
+}
+
+/**
  * Best-effort: register this operator runtime with Aillium Core.
  *
  * Calls Core's runtime register endpoint, which binds the runtime to the

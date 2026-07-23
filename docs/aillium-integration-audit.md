@@ -102,15 +102,30 @@ and the NestJS `operator-runtime-worker` (both post to `operator-sync` /
   `MasterAgentSession`, returning the `runtime_session_key` the runtime then uses
   for `operator-sync`. The boundary now calls this endpoint with `AILLIUM_TENANT_ID`.
 
-### Still dead / not yet wired (P0 remainder)
+### Now wired via the context-engine decorator
 
-The composition root exists; these OpenClaw call sites still need wiring through
-`getAilliumBoundary()` (all against Core endpoints that already exist):
+`src/aillium/context-engine-forwarding.ts` wraps the resolved context engine
+once at the `resolveContextEngine` composition boundary
+(`src/context-engine/registry.ts`) and covers three seams from one point:
 
-- context-engine lifecycle (`afterTurn`/`compact`/`bootstrap`) → `contextLifecycle`;
-- evidence emission on tool/turn completion → `evidenceHooks`;
-- execution-capsule transitions → `capsuleLifecycle`;
-- Staff Room context injection at agent bootstrap → `fetchStaffRoomAgentContext`.
+- **context lifecycle** — `bootstrap` / `afterTurn` / `compact` forward to Core
+  `POST /master-agent/runtime/context-lifecycle` via `contextLifecycle`;
+- **evidence** — each completed turn emits `context.after_turn` via `evidenceHooks`;
+- **Staff Room injection** — `assemble()`'s `systemPromptAddition` is augmented
+  with the agent's Staff Room context (cached ~5 min, gated on `AILLIUM_AGENT_ID`).
+
+The wrapper is a faithful decorator: no-op passthrough when Core is unconfigured,
+preserves the presence of every optional engine method, and never changes the
+underlying engine's return values apart from the Staff Room prompt addition.
+
+### Not an OpenClaw wire: capsule lifecycle
+
+`capsuleLifecycle` in the boundary has **no OpenClaw source** — "execution
+capsules" are a Core/worker-tier concept (`execution-capsules.controller.ts`,
+the operator-runtime-worker), not something the OpenClaw runtime emits. The
+worker already posts capsule transitions to
+`POST /execution-capsules/runtime/lifecycle`, so this is correctly owned by the
+Core tier, not a missing OpenClaw wire.
 
 ### Stubbed / empty
 
@@ -122,12 +137,14 @@ The composition root exists; these OpenClaw call sites still need wiring through
 ### P0 — make the master agent observe its runtime
 
 1. **Done:** runtime register endpoint + boundary composition + startup register.
-2. **Deploy plumbing:** set `AILLIUM_TENANT_ID` (and the runtime token) on the
-   OpenClaw service in compose so registration lands per tenant.
-3. **Wire the remaining boundary call sites** (context lifecycle, evidence,
-   capsules, Staff Room injection) through `getAilliumBoundary()`.
-4. **End-to-end smoke:** register → operator-sync → master-agent session row →
-   portal introspection view.
+2. **Done:** context lifecycle + per-turn evidence + Staff Room injection wired
+   via the context-engine decorator. Capsule lifecycle is Core-tier (not an
+   OpenClaw wire).
+3. **Deploy plumbing (remaining):** set `AILLIUM_TENANT_ID`, the runtime token,
+   and optionally `AILLIUM_AGENT_ID` on the OpenClaw service in compose so
+   registration and Staff Room injection activate per tenant.
+4. **End-to-end smoke (remaining):** register → operator-sync + context-lifecycle
+   → master-agent session/journal rows → portal introspection view.
 
 ### P1 — coherence and the delegation loop
 
