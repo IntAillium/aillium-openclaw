@@ -140,11 +140,17 @@ Files: `prisma/schema.prisma` (`AWAITING_APPROVAL`, `CoordinatorRun.approvalId`
 + migration), `coordinator-orchestration.service.ts`, `approval-queue.service.ts`,
 `daemon-coordinator-executor.service.ts`.
 
-Still open (P1 remainder): (a) **company-instructions proofing** — a
-tenant-level instructions model + a manager LLM review step that checks
-sub-agent output against house rules before the run is submitted; (b)
-**solo-run master auto-approval** — for a solo business, let the master
-auto-approve low-risk runs while still gating high-risk to the human owner.
+Also landed (compiler-verified):
+
+- **Company-instructions proofing.** New `CompanyInstruction` model + CRUD
+  (`company-instructions.controller.ts` / `.service.ts`) — the "train your AI"
+  surface. On finalize, a manager AI proofs the run's output against the active
+  house rules (`proofWork` -> routing resolver -> `executePrompt`); the verdict
+  annotates the approval and raises risk to HIGH when it flags concerns.
+  Advisory + fail-open, so missing AI credentials never strand a run.
+- **Solo-run master auto-approval.** A solo business (single active user) has the
+  master auto-approve work that passes the proof; anything the manager flags
+  still falls through to the human owner gate. Config: `COORDINATOR_SOLO_AUTO_APPROVE`.
 
 ### Not an OpenClaw wire: capsule lifecycle
 
@@ -179,11 +185,10 @@ Core tier, not a missing OpenClaw wire.
 5. **Done:** delegation loop now closes through the coordinator approval gate
    (see the delegation-loop finding above).
 6. **Done:** portal doc drift fixed (README now says React + Vite).
-7. **Remaining — company-instructions proofing.** Add a tenant-level company
-   instructions model + a manager review step (LLM check of sub-agent output
-   against house rules) before the run is submitted for approval.
-8. **Remaining — solo-run master auto-approval.** Detect solo businesses and let
-   the master auto-approve low-risk runs, keeping the human gate for high-risk.
+7. **Done:** company-instructions proofing — a manager AI checks completed work
+   against tenant house rules before approval (see the delegation-loop finding).
+8. **Done:** solo-run master auto-approval — a solo business auto-approves
+   proof-passing work; flagged work still gates to the human owner.
 9. **Remaining — document the Core tier boundary** (NestJS control plane vs Rust
    worker) and dedupe the Rust worker loop vs NestJS `operator-runtime-worker`.
 
