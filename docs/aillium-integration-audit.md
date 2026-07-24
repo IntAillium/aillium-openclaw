@@ -189,8 +189,17 @@ Core tier, not a missing OpenClaw wire.
    against tenant house rules before approval (see the delegation-loop finding).
 8. **Done:** solo-run master auto-approval — a solo business auto-approves
    proof-passing work; flagged work still gates to the human owner.
-9. **Remaining — document the Core tier boundary** (NestJS control plane vs Rust
-   worker) and dedupe the Rust worker loop vs NestJS `operator-runtime-worker`.
+9. **Done — Core tier boundary documented + worker deduped.** See
+   `aillium-core/docs/tier-architecture.md`. Critical finding: the Rust daemon's
+   coordinator executor is a **stub that consumes jobs**, and the real NestJS
+   worker was off by default — so the delegation loop never actually ran. Fixed
+   by config: NestJS `daemon-worker` is now the executor of record
+   (`DAEMON_WORKER_ENABLED=true`) and the Rust worker is neutralized
+   (`AILLIUM_DAEMON__MAX_CONCURRENT_JOBS_GLOBAL=0`).
+10. **Done — conscious system.** The proactive pulse now runs on its interval,
+    auto-activates when the master agent is enabled, and carries a cross-surface
+    attention digest (approvals, calendar, unread mail, stalled tasks). Loops are
+    enabled in compose. "Daydream" = the `DREAM_PASS` subconscious pass.
 
 ### P2 — complete the surface
 
