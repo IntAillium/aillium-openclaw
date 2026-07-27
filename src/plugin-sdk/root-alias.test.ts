@@ -128,11 +128,17 @@ describe("plugin-sdk root alias", () => {
     expect(rootSdk.__esModule).toBe(true);
   });
 
-  it("preserves reflection semantics for lazily resolved exports", { timeout: 240_000 }, () => {
-    expect("resolveControlCommandGate" in rootSdk).toBe(true);
-    const keys = Object.keys(rootSdk);
-    expect(keys).toContain("resolveControlCommandGate");
-    const descriptor = Object.getOwnPropertyDescriptor(rootSdk, "resolveControlCommandGate");
-    expect(descriptor).toBeDefined();
-  });
+  it(
+    "preserves reflection semantics for lazily resolved exports",
+    // The cold source load through jiti can exceed four minutes on the
+    // 4-vCPU GitHub-hosted Windows runner.
+    { timeout: 420_000 },
+    () => {
+      expect("resolveControlCommandGate" in rootSdk).toBe(true);
+      const keys = Object.keys(rootSdk);
+      expect(keys).toContain("resolveControlCommandGate");
+      const descriptor = Object.getOwnPropertyDescriptor(rootSdk, "resolveControlCommandGate");
+      expect(descriptor).toBeDefined();
+    },
+  );
 });
