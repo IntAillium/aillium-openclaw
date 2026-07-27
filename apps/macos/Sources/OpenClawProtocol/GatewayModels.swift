@@ -1332,6 +1332,8 @@ public struct SessionsPatchParams: Codable, Sendable {
     public let execask: AnyCodable?
     public let execnode: AnyCodable?
     public let model: AnyCodable?
+    public let authprofileid: AnyCodable?
+    public let authprofilesource: AnyCodable?
     public let spawnedby: AnyCodable?
     public let spawnedworkspacedir: AnyCodable?
     public let spawndepth: AnyCodable?
@@ -1354,6 +1356,8 @@ public struct SessionsPatchParams: Codable, Sendable {
         execask: AnyCodable?,
         execnode: AnyCodable?,
         model: AnyCodable?,
+        authprofileid: AnyCodable?,
+        authprofilesource: AnyCodable?,
         spawnedby: AnyCodable?,
         spawnedworkspacedir: AnyCodable?,
         spawndepth: AnyCodable?,
@@ -1375,6 +1379,8 @@ public struct SessionsPatchParams: Codable, Sendable {
         self.execask = execask
         self.execnode = execnode
         self.model = model
+        self.authprofileid = authprofileid
+        self.authprofilesource = authprofilesource
         self.spawnedby = spawnedby
         self.spawnedworkspacedir = spawnedworkspacedir
         self.spawndepth = spawndepth
@@ -1398,6 +1404,8 @@ public struct SessionsPatchParams: Codable, Sendable {
         case execask = "execAsk"
         case execnode = "execNode"
         case model
+        case authprofileid = "authProfileId"
+        case authprofilesource = "authProfileSource"
         case spawnedby = "spawnedBy"
         case spawnedworkspacedir = "spawnedWorkspaceDir"
         case spawndepth = "spawnDepth"
@@ -2031,6 +2039,24 @@ public struct AgentSummary: Codable, Sendable {
         case id
         case name
         case identity
+    }
+}
+
+public struct AuthProfilesUpsertParams: Codable, Sendable {
+    public let profileid: String
+    public let credential: [String: AnyCodable]
+
+    public init(
+        profileid: String,
+        credential: [String: AnyCodable])
+    {
+        self.profileid = profileid
+        self.credential = credential
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case profileid = "profileId"
+        case credential
     }
 }
 
@@ -3361,6 +3387,9 @@ public struct ChatHistoryParams: Codable, Sendable {
 public struct ChatSendParams: Codable, Sendable {
     public let sessionkey: String
     public let message: String
+    public let model: String?
+    public let authprofileid: String?
+    public let authprofilesource: AnyCodable?
     public let thinking: String?
     public let deliver: Bool?
     public let attachments: [AnyCodable]?
@@ -3372,6 +3401,9 @@ public struct ChatSendParams: Codable, Sendable {
     public init(
         sessionkey: String,
         message: String,
+        model: String?,
+        authprofileid: String?,
+        authprofilesource: AnyCodable?,
         thinking: String?,
         deliver: Bool?,
         attachments: [AnyCodable]?,
@@ -3382,6 +3414,9 @@ public struct ChatSendParams: Codable, Sendable {
     {
         self.sessionkey = sessionkey
         self.message = message
+        self.model = model
+        self.authprofileid = authprofileid
+        self.authprofilesource = authprofilesource
         self.thinking = thinking
         self.deliver = deliver
         self.attachments = attachments
@@ -3394,6 +3429,9 @@ public struct ChatSendParams: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case sessionkey = "sessionKey"
         case message
+        case model
+        case authprofileid = "authProfileId"
+        case authprofilesource = "authProfileSource"
         case thinking
         case deliver
         case attachments
