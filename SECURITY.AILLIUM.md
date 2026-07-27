@@ -15,6 +15,7 @@ Do NOT open a public GitHub issue for security vulnerabilities.
 ## Scope
 
 This policy applies to:
+
 - Aillium Core
 - Aillium Portal
 - OpenClaw fork

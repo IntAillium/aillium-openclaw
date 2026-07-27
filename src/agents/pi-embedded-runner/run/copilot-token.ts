@@ -60,9 +60,7 @@ export class CopilotTokenManager {
       await this.refreshInFlight;
       return;
     }
-    const { resolveCopilotApiToken } = await import(
-      "../../../providers/github-copilot-token.js"
-    );
+    const { resolveCopilotApiToken } = await import("../../../providers/github-copilot-token.js");
     this.refreshInFlight = (async () => {
       const githubToken = this.githubToken.trim();
       if (!githubToken) {
@@ -70,10 +68,7 @@ export class CopilotTokenManager {
       }
       log.debug(`Refreshing GitHub Copilot token (${reason})...`);
       const copilotToken = await resolveCopilotApiToken({ githubToken });
-      this.deps.authStorage.setRuntimeApiKey(
-        this.deps.provider,
-        copilotToken.token,
-      );
+      this.deps.authStorage.setRuntimeApiKey(this.deps.provider, copilotToken.token);
       this.expiresAt = copilotToken.expiresAt;
       const remaining = copilotToken.expiresAt - Date.now();
       log.debug(

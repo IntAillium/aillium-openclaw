@@ -1,10 +1,8 @@
 ---
-
 ## Aillium Extensions
 
 This repository is used as part of the Aillium platform by IntAillium.
 See README.AILLIUM.md for Aillium-specific architecture, policies, and integrations.
-
 ---
 
 # 🦞 OpenClaw — Personal AI Assistant

@@ -38,21 +38,24 @@ class LiveRuntimeRegistrationAdapter implements RuntimeRegistrationAdapter {
   constructor(private readonly config: AilliumCoreConnectionConfig) {}
 
   async register(input: RuntimeRegistrationInput): Promise<RuntimeRegistrationResult> {
+    const metadata = (input.metadata as Record<string, unknown> | undefined) ?? {};
+    const tenantId = typeof metadata.tenantId === "string" ? metadata.tenantId : undefined;
+    const runtimeSessionKey =
+      typeof metadata.runtimeSessionKey === "string" ? metadata.runtimeSessionKey : undefined;
     try {
-      const response = await fetch(`${this.config.baseUrl}/master-agent/runtime/operator-sync`, {
+      const response = await fetch(`${this.config.baseUrl}/master-agent/runtime/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-aillium-runtime-token": this.config.syncToken,
         },
         body: JSON.stringify({
-          runtime_session_key: input.runtimeId,
-          metadata: {
-            registration: true,
-            runtimeVersion: input.runtimeVersion,
-            capabilities: input.capabilities,
-            ...(input.metadata as Record<string, unknown>),
-          },
+          tenant_id: tenantId,
+          runtime_id: input.runtimeId,
+          runtime_session_key: runtimeSessionKey,
+          runtime_version: input.runtimeVersion,
+          capabilities: input.capabilities,
+          metadata,
         }),
         signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
       });
@@ -68,7 +71,8 @@ class LiveRuntimeRegistrationAdapter implements RuntimeRegistrationAdapter {
       const result = (await response.json()) as Record<string, unknown>;
       return {
         registered: true,
-        externalRuntimeRef: (result.sessionId as string) ?? undefined,
+        externalRuntimeRef:
+          (result.runtime_session_key as string) ?? (result.session_id as string) ?? undefined,
         message: "Registered with Aillium Core",
       };
     } catch (err: unknown) {

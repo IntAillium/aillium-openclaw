@@ -207,7 +207,7 @@ async function withMcpClient<T>(
   );
 
   if (server.transportType === "STDIO") {
-    const config = (server.config ?? {}) as Record<string, unknown>;
+    const config = server.config ?? {};
     const env =
       config.env && typeof config.env === "object"
         ? Object.fromEntries(
@@ -237,7 +237,7 @@ async function withMcpClient<T>(
     });
     await client.connect(transport);
   } else {
-    const config = (server.config ?? {}) as Record<string, unknown>;
+    const config = server.config ?? {};
     const headers =
       config.headers && typeof config.headers === "object"
         ? Object.fromEntries(

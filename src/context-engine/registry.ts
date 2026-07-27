@@ -1,3 +1,4 @@
+import { wrapContextEngineForAillium } from "../aillium/context-engine-forwarding.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { defaultSlotIdForKey } from "../plugins/slots.js";
 import type { ContextEngine } from "./types.js";
@@ -139,5 +140,7 @@ export async function resolveContextEngine(config?: OpenClawConfig): Promise<Con
     );
   }
 
-  return entry.factory();
+  // Wrap the resolved engine so its lifecycle is forwarded to Aillium Core and
+  // Staff Room context is injected. No-op passthrough when Core is unconfigured.
+  return wrapContextEngineForAillium(await entry.factory());
 }

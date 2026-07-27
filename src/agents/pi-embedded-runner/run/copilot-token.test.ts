@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import { CopilotTokenManager, type CopilotAuthStorage } from "./copilot-token.js";
 
 const resolveCopilotApiTokenMock = vi.fn();

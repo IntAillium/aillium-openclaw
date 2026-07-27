@@ -1,6 +1,5 @@
 import { upsertAuthProfileWithLock } from "../../agents/auth-profiles/profiles.js";
 import { validateAuthProfilesUpsertParams } from "../protocol/index.js";
-import { type AuthProfilesUpsertParams } from "../protocol/schema/auth-profiles.js";
 import type { GatewayRequestHandlers } from "./types.js";
 import { assertValidParams } from "./validation.js";
 

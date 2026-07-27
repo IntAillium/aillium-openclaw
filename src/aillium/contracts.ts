@@ -124,10 +124,7 @@ export interface StaffRoomContextProvider {
    * @param metadata - Optional session metadata for scope resolution
    * @returns Markdown-formatted context string, or empty string if unavailable
    */
-  getAgentContext(
-    agentId: string,
-    metadata?: TenantSessionMetadata,
-  ): Promise<string>;
+  getAgentContext(agentId: string, metadata?: TenantSessionMetadata): Promise<string>;
 
   /**
    * Retrieves scoped memory items for runtime use.

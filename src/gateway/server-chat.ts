@@ -257,7 +257,11 @@ export function createToolEventRecipientRegistry(): ToolEventRecipientRegistry {
       return;
     }
     // Only prune when map is large or 60s have passed since last prune.
-    if (!force && recipients.size < TOOL_EVENT_RECIPIENT_PRUNE_THRESHOLD && Date.now() - lastPruneAt < 60_000) {
+    if (
+      !force &&
+      recipients.size < TOOL_EVENT_RECIPIENT_PRUNE_THRESHOLD &&
+      Date.now() - lastPruneAt < 60_000
+    ) {
       return;
     }
     const now = Date.now();
