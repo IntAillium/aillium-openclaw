@@ -512,6 +512,7 @@ jobs:
     needs: [docs-scope, changed-scope, check]
     if: github.event_name == 'pull_request' && needs.docs-scope.outputs.docs_only != 'true' && needs.changed-scope.outputs.run_macos == 'true'
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -523,11 +524,12 @@ jobs:
         with:
           install-bun: "false"
 
-      # --- Run all checks sequentially (fast gates first) ---
+      # Linux owns the full TypeScript suite. Keep this hosted macOS lane
+      # focused on launchd, Homebrew, and runtime-path behavior before Swift.
       - name: TS tests (macOS)
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-        run: pnpm test
+        run: pnpm test:macos:ci
 
       # --- Xcode/Swift setup ---
       - name: Select Xcode 26.1
