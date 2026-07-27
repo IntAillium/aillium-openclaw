@@ -476,20 +476,26 @@ export async function deliverOutboundPayloads(
     const results = await deliverOutboundPayloadsCore(wrappedParams);
     if (queueId) {
       if (hadPartialFailure) {
-        await failDelivery(queueId, "partial delivery failure (bestEffort)").catch((err) => { log.warn(`delivery status update failed (failDelivery): ${err}`); });
+        await failDelivery(queueId, "partial delivery failure (bestEffort)").catch((err) => {
+          log.warn(`delivery status update failed (failDelivery): ${err}`);
+        });
       } else {
-        await ackDelivery(queueId).catch((err) => { log.warn(`delivery status update failed (ackDelivery): ${err}`); });
+        await ackDelivery(queueId).catch((err) => {
+          log.warn(`delivery status update failed (ackDelivery): ${err}`);
+        });
       }
     }
     return results;
   } catch (err) {
     if (queueId) {
       if (isAbortError(err)) {
-        await ackDelivery(queueId).catch((e) => { log.warn(`delivery status update failed (ackDelivery/abort): ${e}`); });
+        await ackDelivery(queueId).catch((e) => {
+          log.warn(`delivery status update failed (ackDelivery/abort): ${e}`);
+        });
       } else {
-        await failDelivery(queueId, err instanceof Error ? err.message : String(err)).catch(
-          (e) => { log.warn(`delivery status update failed (failDelivery): ${e}`); },
-        );
+        await failDelivery(queueId, err instanceof Error ? err.message : String(err)).catch((e) => {
+          log.warn(`delivery status update failed (failDelivery): ${e}`);
+        });
       }
     }
     throw err;

@@ -20,7 +20,7 @@ const serverSchema = z
     command: z.string().min(1).optional().nullable(),
     args: z.array(z.string().min(1)).optional(),
     url: z.string().url().optional().nullable(),
-    config: z.record(z.unknown()).optional().nullable(),
+    config: z.record(z.string(), z.unknown()).optional().nullable(),
   })
   .superRefine((value, ctx) => {
     if (value.transportType === "STDIO" && !value.command?.trim()) {
@@ -46,7 +46,7 @@ const discoverBodySchema = z.object({
 const invokeToolBodySchema = z.object({
   server: serverSchema,
   toolName: z.string().min(1),
-  arguments: z.record(z.unknown()).optional(),
+  arguments: z.record(z.string(), z.unknown()).optional(),
 });
 
 const readResourceBodySchema = z.object({
@@ -57,7 +57,7 @@ const readResourceBodySchema = z.object({
 const getPromptBodySchema = z.object({
   server: serverSchema,
   name: z.string().min(1),
-  arguments: z.record(z.unknown()).optional(),
+  arguments: z.record(z.string(), z.string()).optional(),
 });
 
 const desktopSurfaceSchema = z.enum(["remote_browser", "local_browser", "local_computer"]);
@@ -78,7 +78,7 @@ const desktopHandoffBodySchema = z.object({
   reason: z.string().min(1).optional().nullable(),
   initiatedBy: z.enum(["USER", "AGENT", "SYSTEM"]),
   prompt: z.string().min(1).optional().nullable(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const desktopInvokeActionBodySchema = z.object({
@@ -87,8 +87,8 @@ const desktopInvokeActionBodySchema = z.object({
   sessionKey: z.string().min(1),
   action: z.string().min(1),
   requestedSurface: desktopSurfaceSchema.optional(),
-  arguments: z.record(z.unknown()).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  arguments: z.record(z.string(), z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 type AilliumMcpServer = z.infer<typeof serverSchema>;
@@ -207,7 +207,7 @@ async function withMcpClient<T>(
   );
 
   if (server.transportType === "STDIO") {
-    const config = (server.config ?? {}) as Record<string, unknown>;
+    const config = server.config ?? {};
     const env =
       config.env && typeof config.env === "object"
         ? Object.fromEntries(
@@ -237,7 +237,7 @@ async function withMcpClient<T>(
     });
     await client.connect(transport);
   } else {
-    const config = (server.config ?? {}) as Record<string, unknown>;
+    const config = server.config ?? {};
     const headers =
       config.headers && typeof config.headers === "object"
         ? Object.fromEntries(

@@ -61,10 +61,7 @@ class NoopCapsuleLifecycleHook implements CapsuleLifecycleHook {
 }
 
 class NoopStaffRoomContextProvider implements StaffRoomContextProvider {
-  async getAgentContext(
-    _agentId: string,
-    _metadata?: TenantSessionMetadata,
-  ): Promise<string> {
+  async getAgentContext(_agentId: string, _metadata?: TenantSessionMetadata): Promise<string> {
     // No-op until Aillium Core Staff Room is configured.
     return "";
   }

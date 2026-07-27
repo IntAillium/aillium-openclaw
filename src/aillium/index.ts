@@ -34,7 +34,4 @@ export {
 } from "./boundary-runtime.js";
 export type { OperatorRuntimeSyncOptions } from "./boundary-runtime.js";
 
-export {
-  resetStaffRoomCache,
-  wrapContextEngineForAillium,
-} from "./context-engine-forwarding.js";
+export { resetStaffRoomCache, wrapContextEngineForAillium } from "./context-engine-forwarding.js";

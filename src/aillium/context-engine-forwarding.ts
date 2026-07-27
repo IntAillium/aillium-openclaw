@@ -94,10 +94,7 @@ async function staffRoomSystemPromptAddition(): Promise<string> {
   }
 }
 
-function mergeSystemPromptAddition(
-  base: string | undefined,
-  addition: string,
-): string | undefined {
+function mergeSystemPromptAddition(base: string | undefined, addition: string): string | undefined {
   const parts = [base, addition]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));

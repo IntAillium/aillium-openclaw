@@ -33,6 +33,10 @@ async function writeRuntimePostBuildScaffold(tmp: string): Promise<void> {
   await fs.utimes(pluginSdkAliasPath, baselineTime, baselineTime);
 }
 
+async function readJsonFile(filePath: string): Promise<Record<string, unknown>> {
+  return JSON.parse(await fs.readFile(filePath, "utf-8")) as Record<string, unknown>;
+}
+
 function expectedBuildSpawn(platform: NodeJS.Platform = process.platform) {
   return platform === "win32"
     ? ["cmd.exe", "/d", "/s", "/c", "pnpm", "exec", "tsdown", "--no-clean"]
@@ -151,8 +155,8 @@ describe("run-node script", () => {
         fs.readFile(path.join(tmp, "dist", "plugin-sdk", "root-alias.cjs"), "utf-8"),
       ).resolves.toContain("module.exports = {};");
       await expect(
-        fs.readFile(path.join(tmp, "dist", "extensions", "demo", "openclaw.plugin.json"), "utf-8"),
-      ).resolves.toContain('"id":"demo"');
+        readJsonFile(path.join(tmp, "dist", "extensions", "demo", "openclaw.plugin.json")),
+      ).resolves.toMatchObject({ id: "demo" });
       await expect(
         fs.readFile(path.join(tmp, "dist", "extensions", "demo", "package.json"), "utf-8"),
       ).resolves.toContain(
@@ -501,7 +505,7 @@ describe("run-node script", () => {
 
       expect(exitCode).toBe(0);
       expect(spawnCalls).toEqual([[process.execPath, "openclaw.mjs", "status"]]);
-      await expect(fs.readFile(distManifestPath, "utf-8")).resolves.toContain('"id":"demo"');
+      await expect(readJsonFile(distManifestPath)).resolves.toMatchObject({ id: "demo" });
     });
   });
 
@@ -567,7 +571,7 @@ describe("run-node script", () => {
 
       expect(exitCode).toBe(0);
       expect(spawnCalls).toEqual([[process.execPath, "openclaw.mjs", "status"]]);
-      await expect(fs.readFile(distManifestPath, "utf-8")).resolves.toContain('"id":"demo"');
+      await expect(readJsonFile(distManifestPath)).resolves.toMatchObject({ id: "demo" });
     });
   });
 

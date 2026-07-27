@@ -43,25 +43,22 @@ class LiveRuntimeRegistrationAdapter implements RuntimeRegistrationAdapter {
     const runtimeSessionKey =
       typeof metadata.runtimeSessionKey === "string" ? metadata.runtimeSessionKey : undefined;
     try {
-      const response = await fetch(
-        `${this.config.baseUrl}/master-agent/runtime/register`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-aillium-runtime-token": this.config.syncToken,
-          },
-          body: JSON.stringify({
-            tenant_id: tenantId,
-            runtime_id: input.runtimeId,
-            runtime_session_key: runtimeSessionKey,
-            runtime_version: input.runtimeVersion,
-            capabilities: input.capabilities,
-            metadata,
-          }),
-          signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      const response = await fetch(`${this.config.baseUrl}/master-agent/runtime/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-aillium-runtime-token": this.config.syncToken,
         },
-      );
+        body: JSON.stringify({
+          tenant_id: tenantId,
+          runtime_id: input.runtimeId,
+          runtime_session_key: runtimeSessionKey,
+          runtime_version: input.runtimeVersion,
+          capabilities: input.capabilities,
+          metadata,
+        }),
+        signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      });
 
       if (!response.ok) {
         const text = await response.text().catch(() => "");
@@ -78,7 +75,7 @@ class LiveRuntimeRegistrationAdapter implements RuntimeRegistrationAdapter {
           (result.runtime_session_key as string) ?? (result.session_id as string) ?? undefined,
         message: "Registered with Aillium Core",
       };
-    } catch (err) {
+    } catch (err: unknown) {
       return {
         registered: false,
         message: `Registration failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -88,13 +85,19 @@ class LiveRuntimeRegistrationAdapter implements RuntimeRegistrationAdapter {
 }
 
 class LiveContractAdapter implements ContractAdapter {
-  async toExternalContract(input: JsonValue, _metadata?: TenantSessionMetadata): Promise<JsonValue> {
+  async toExternalContract(
+    input: JsonValue,
+    _metadata?: TenantSessionMetadata,
+  ): Promise<JsonValue> {
     // Pass-through: Aillium Core's task-bus already handles contract normalization.
     // This adapter exists for future contract versioning needs.
     return input;
   }
 
-  async fromExternalContract(input: JsonValue, _metadata?: TenantSessionMetadata): Promise<JsonValue> {
+  async fromExternalContract(
+    input: JsonValue,
+    _metadata?: TenantSessionMetadata,
+  ): Promise<JsonValue> {
     return input;
   }
 }
@@ -108,37 +111,40 @@ class LiveEvidenceCallbackHook implements EvidenceCallbackHook {
     metadata?: TenantSessionMetadata,
   ): Promise<void> {
     const sessionKey = metadata?.runtimeSessionKey as string | undefined;
-    if (!sessionKey) return;
+    if (!sessionKey) {
+      return;
+    }
 
     try {
-      await fetch(
-        `${this.config.baseUrl}/master-agent/runtime/operator-sync`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-aillium-runtime-token": this.config.syncToken,
-          },
-          body: JSON.stringify({
-            runtime_session_key: sessionKey,
-            artifacts: [
-              {
-                uri: `evidence://${eventName}/${Date.now()}`,
-                kind: eventName,
-                metadata: {
-                  ...(typeof payload === "object" && payload !== null && !Array.isArray(payload)
-                    ? (payload as Record<string, unknown>)
-                    : { value: payload }),
-                  evidenceEmittedAt: new Date().toISOString(),
-                },
-              },
-            ],
-          }),
-          signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      await fetch(`${this.config.baseUrl}/master-agent/runtime/operator-sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-aillium-runtime-token": this.config.syncToken,
         },
-      );
-    } catch {
+        body: JSON.stringify({
+          runtime_session_key: sessionKey,
+          artifacts: [
+            {
+              uri: `evidence://${eventName}/${Date.now()}`,
+              kind: eventName,
+              metadata: {
+                ...(typeof payload === "object" && payload !== null && !Array.isArray(payload)
+                  ? (payload as Record<string, unknown>)
+                  : { value: payload }),
+                evidenceEmittedAt: new Date().toISOString(),
+              },
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      });
+    } catch (err) {
       // Best-effort evidence delivery; do not block runtime execution
+      console.warn(
+        `[aillium-boundary] onEvidence failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 }
@@ -156,25 +162,26 @@ class LiveContextLifecycleHook implements ContextLifecycleHook {
 
   async onContextLifecycle(event: ContextLifecycleEvent): Promise<void> {
     try {
-      await fetch(
-        `${this.config.baseUrl}/master-agent/runtime/context-lifecycle`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-aillium-runtime-token": this.config.syncToken,
-          },
-          body: JSON.stringify({
-            runtime_session_key: event.sessionKey,
-            runtime_session_id: event.sessionId,
-            event_kind: event.kind,
-            payload: event.payload,
-          }),
-          signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      await fetch(`${this.config.baseUrl}/master-agent/runtime/context-lifecycle`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-aillium-runtime-token": this.config.syncToken,
         },
-      );
-    } catch {
+        body: JSON.stringify({
+          runtime_session_key: event.sessionKey,
+          runtime_session_id: event.sessionId,
+          event_kind: event.kind,
+          payload: event.payload,
+        }),
+        signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      });
+    } catch (err) {
       // Best-effort lifecycle delivery; do not block runtime execution
+      console.warn(
+        `[aillium-boundary] onContextLifecycle failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 }
@@ -184,25 +191,26 @@ class LiveCapsuleLifecycleHook implements CapsuleLifecycleHook {
 
   async onCapsuleLifecycle(event: CapsuleLifecycleEvent): Promise<void> {
     try {
-      await fetch(
-        `${this.config.baseUrl}/execution-capsules/runtime/lifecycle`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-aillium-runtime-token": this.config.syncToken,
-          },
-          body: JSON.stringify({
-            capsule_id: event.capsuleId,
-            session_key: event.sessionKey,
-            event_kind: event.kind,
-            payload: event.payload,
-          }),
-          signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      await fetch(`${this.config.baseUrl}/execution-capsules/runtime/lifecycle`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-aillium-runtime-token": this.config.syncToken,
         },
-      );
-    } catch {
+        body: JSON.stringify({
+          capsule_id: event.capsuleId,
+          session_key: event.sessionKey,
+          event_kind: event.kind,
+          payload: event.payload,
+        }),
+        signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      });
+    } catch (err) {
       // Best-effort capsule lifecycle delivery; do not block runtime execution
+      console.warn(
+        `[aillium-boundary] onCapsuleLifecycle failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 }
@@ -210,29 +218,29 @@ class LiveCapsuleLifecycleHook implements CapsuleLifecycleHook {
 class LiveStaffRoomContextProvider implements StaffRoomContextProvider {
   constructor(private readonly config: AilliumCoreConnectionConfig) {}
 
-  async getAgentContext(
-    agentId: string,
-    metadata?: TenantSessionMetadata,
-  ): Promise<string> {
+  async getAgentContext(agentId: string, _metadata?: TenantSessionMetadata): Promise<string> {
     try {
-      const response = await fetch(
-        `${this.config.baseUrl}/staff-room/agent-context/${agentId}`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            "x-aillium-runtime-token": this.config.syncToken,
-          },
-          signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      const response = await fetch(`${this.config.baseUrl}/staff-room/agent-context/${agentId}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "x-aillium-runtime-token": this.config.syncToken,
         },
-      );
+        signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
+      });
 
-      if (!response.ok) return "";
+      if (!response.ok) {
+        return "";
+      }
 
       const result = (await response.json()) as { context?: string };
       return result.context ?? "";
-    } catch {
+    } catch (err) {
       // Staff Room context retrieval is best-effort; do not block agent startup
+      console.warn(
+        `[aillium-boundary] getAgentContext failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
       return "";
     }
   }
@@ -246,10 +254,18 @@ class LiveStaffRoomContextProvider implements StaffRoomContextProvider {
   }): Promise<StaffRoomRetrievalResult> {
     try {
       const qs = new URLSearchParams();
-      if (params.agentId) qs.set("agent_id", params.agentId);
-      if (params.departmentId) qs.set("department_id", params.departmentId);
-      if (params.query) qs.set("query", params.query);
-      if (params.maxResults) qs.set("max_results", String(params.maxResults));
+      if (params.agentId) {
+        qs.set("agent_id", params.agentId);
+      }
+      if (params.departmentId) {
+        qs.set("department_id", params.departmentId);
+      }
+      if (params.query) {
+        qs.set("query", params.query);
+      }
+      if (params.maxResults) {
+        qs.set("max_results", String(params.maxResults));
+      }
       const queryString = qs.toString();
 
       const response = await fetch(
@@ -269,8 +285,12 @@ class LiveStaffRoomContextProvider implements StaffRoomContextProvider {
       }
 
       return (await response.json()) as StaffRoomRetrievalResult;
-    } catch {
+    } catch (err) {
       // Best-effort retrieval; return empty results on failure
+      console.warn(
+        `[aillium-boundary] retrieveMemory failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
       return { results: [], total_count: 0, agent_context: null };
     }
   }

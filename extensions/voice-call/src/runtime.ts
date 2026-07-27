@@ -42,7 +42,9 @@ function createRuntimeResourceLifecycle(params: {
 
   const runStep = async (step: () => Promise<void>, suppressErrors: boolean) => {
     if (suppressErrors) {
-      await step().catch((err) => { console.warn("voice-call: cleanup step failed", err); });
+      await step().catch((err) => {
+        console.warn("voice-call: cleanup step failed", err);
+      });
       return;
     }
     await step();

@@ -124,7 +124,7 @@ export async function resolveGatewayRuntimeConfig(params: {
   assertGatewayAuthConfigured(resolvedAuth, params.cfg.gateway?.auth);
   if (authMode === "token" && !hasToken) {
     console.warn(
-      "[gateway] WARNING: auth mode is \"token\" but OPENCLAW_GATEWAY_TOKEN is empty/undefined — gateway is running without proper token auth",
+      '[gateway] WARNING: auth mode is "token" but OPENCLAW_GATEWAY_TOKEN is empty/undefined — gateway is running without proper token auth',
     );
   }
   if (tailscaleMode === "funnel" && authMode !== "password") {

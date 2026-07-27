@@ -2,7 +2,7 @@
 
 Status date: 2026-07-23. Author: automated integration review.
 
-This document maps how the Aillium repositories are *meant* to connect into a
+This document maps how the Aillium repositories are _meant_ to connect into a
 single autonomous business OS, where they actually connect today, and what to
 fix (in priority order) to make the system function end to end. It is written to
 be picked up across multiple work sessions, so every claim cites file evidence.
@@ -56,17 +56,17 @@ and the NestJS `operator-runtime-worker` (both post to `operator-sync` /
 
 ## Repository status
 
-| Repo | Role | Language / stack | State |
-|------|------|------------------|-------|
-| `aillium-core` | Control plane (`core-api`, NestJS, :3000) + autonomous daemon (`core`, Rust, :4000, client of core-api) | NestJS + Prisma **and** Rust workspace | Both real and complementary. `core-api` is the system of record. |
-| `aillium-openclaw` | Runtime / orchestration substrate (agent runtime, browser control, gateway, hooks) | TypeScript (fork of OpenClaw) | Substantial. Aillium boundary now wired to Core (this work). |
-| `aillium-portal` | Operator dashboard / AI command UI | **React 18 + Vite** (README says Next.js — doc is wrong) | Real UI. `src/pages`, `src/components`, `src/lib`. |
-| `aillium-remote-meshcentral` | Remote-support / device session plane | JavaScript (fork of MeshCentral) | Large, real fork with `aillium/` adapter dir. |
-| `aillium-schemas` | Shared contracts | JSON Schema + TS package + Python package | Real. Schemas for `core`, `openclaw`, `meshcentral`, `larksuite`, `executor`. |
-| `aillium-integrations` | Connectors / workflows (n8n, Lark) | TypeScript | Small but real: `connectors/registry`, `webhooks/events`, `workflows/templates`, `health/check`. |
-| `platform` | Docker Compose orchestration + deploy scripts | Compose / shell | Real. Wires core-api + core + portal + OpenClaw + worker + n8n + Postgres. |
-| `aillium-remote` | (intended remote piece) | — | **Stub**: only README/LICENSE/guardrails. Real remote lives in `aillium-remote-meshcentral`. |
-| `Aillium-code` | Coding agent, "based on opencode" | — | **Empty** on this branch (only `.git`). opencode not yet vendored. |
+| Repo                         | Role                                                                                                    | Language / stack                                         | State                                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `aillium-core`               | Control plane (`core-api`, NestJS, :3000) + autonomous daemon (`core`, Rust, :4000, client of core-api) | NestJS + Prisma **and** Rust workspace                   | Both real and complementary. `core-api` is the system of record.                                 |
+| `aillium-openclaw`           | Runtime / orchestration substrate (agent runtime, browser control, gateway, hooks)                      | TypeScript (fork of OpenClaw)                            | Substantial. Aillium boundary now wired to Core (this work).                                     |
+| `aillium-portal`             | Operator dashboard / AI command UI                                                                      | **React 18 + Vite** (README says Next.js — doc is wrong) | Real UI. `src/pages`, `src/components`, `src/lib`.                                               |
+| `aillium-remote-meshcentral` | Remote-support / device session plane                                                                   | JavaScript (fork of MeshCentral)                         | Large, real fork with `aillium/` adapter dir.                                                    |
+| `aillium-schemas`            | Shared contracts                                                                                        | JSON Schema + TS package + Python package                | Real. Schemas for `core`, `openclaw`, `meshcentral`, `larksuite`, `executor`.                    |
+| `aillium-integrations`       | Connectors / workflows (n8n, Lark)                                                                      | TypeScript                                               | Small but real: `connectors/registry`, `webhooks/events`, `workflows/templates`, `health/check`. |
+| `platform`                   | Docker Compose orchestration + deploy scripts                                                           | Compose / shell                                          | Real. Wires core-api + core + portal + OpenClaw + worker + n8n + Postgres.                       |
+| `aillium-remote`             | (intended remote piece)                                                                                 | —                                                        | **Stub**: only README/LICENSE/guardrails. Real remote lives in `aillium-remote-meshcentral`.     |
+| `Aillium-code`               | Coding agent, "based on opencode"                                                                       | —                                                        | **Empty** on this branch (only `.git`). opencode not yet vendored.                               |
 
 ## Integration seam map
 
@@ -94,7 +94,7 @@ and the NestJS `operator-runtime-worker` (both post to `operator-sync` /
   live/default selection) and wired a best-effort registration at gateway bind
   (`src/gateway/server-runtime-state.ts`). Runtime signals can now reach Core.
 - **Resolved the register/operator-sync mismatch.** Previously the boundary's
-  `register()` posted to `operator-sync`, which only *updates an existing*
+  `register()` posted to `operator-sync`, which only _updates an existing_
   master-agent session (it 404s on an unknown key) — so a runtime could not
   self-register. Added `POST /master-agent/runtime/register` on `core-api`
   (`registerRuntime()` in `master-agent-runtime-sync.service.ts`): it resolves
@@ -120,7 +120,7 @@ underlying engine's return values apart from the Staff Room prompt addition.
 
 ### Delegation loop (Core): now closes through an approval gate
 
-Finding: the delegation *mechanics* worked (master -> coordinator run ->
+Finding: the delegation _mechanics_ worked (master -> coordinator run ->
 department tasks -> sub-agent sessions -> a technical VERIFICATION_RUN), but the
 run then **dead-ended at COMPLETED with no approval**. The full `ApprovalQueueService`
 (submit, resolve, escalate, OOO, approver routing) existed but had **zero
@@ -137,8 +137,9 @@ finalize + COMPLETED, REJECTED/expired -> FAILED. Gate is on by default and can
 be disabled with `COORDINATOR_REQUIRE_APPROVAL=false`.
 
 Files: `prisma/schema.prisma` (`AWAITING_APPROVAL`, `CoordinatorRun.approvalId`
-+ migration), `coordinator-orchestration.service.ts`, `approval-queue.service.ts`,
-`daemon-coordinator-executor.service.ts`.
+
+- migration), `coordinator-orchestration.service.ts`, `approval-queue.service.ts`,
+  `daemon-coordinator-executor.service.ts`.
 
 Also landed (compiler-verified):
 
@@ -204,7 +205,7 @@ Core tier, not a missing OpenClaw wire.
 ### P2 — complete the surface
 
 8. **Skill-creation engine (natural language → agent skills).** The OS needs a
-   way for a business to *train* its master, department, and sub-agents: take a
+   way for a business to _train_ its master, department, and sub-agents: take a
    plain-language request ("chase overdue invoices weekly") and turn it into a
    reusable skill bound to the right agent(s). Data model already exists
    (`MasterAgentSkillBinding`, `skills.controller.ts`, `ai-builder.controller.ts`);

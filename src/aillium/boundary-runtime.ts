@@ -16,16 +16,9 @@
  */
 
 import { hostname } from "node:os";
-import type {
-  AilliumIntegrationBoundary,
-  JsonValue,
-  TenantSessionMetadata,
-} from "./contracts.js";
+import type { AilliumIntegrationBoundary, JsonValue, TenantSessionMetadata } from "./contracts.js";
 import { createDefaultAilliumBoundary } from "./defaults.js";
-import {
-  type AilliumCoreConnectionConfig,
-  createLiveAilliumBoundary,
-} from "./live-boundary.js";
+import { type AilliumCoreConnectionConfig, createLiveAilliumBoundary } from "./live-boundary.js";
 
 /** Capabilities this operator runtime advertises to Aillium Core on sync. */
 const DEFAULT_RUNTIME_CAPABILITIES: readonly string[] = Object.freeze([
@@ -70,8 +63,7 @@ function trimmedEnv(name: string): string | undefined {
  */
 export function resolveAilliumCoreConfig(): AilliumCoreConnectionConfig | null {
   const baseUrl = trimmedEnv("AILLIUM_CORE_URL");
-  const syncToken =
-    trimmedEnv("AILLIUM_RUNTIME_TOKEN") ?? trimmedEnv("OPERATOR_RUNTIME_TOKEN");
+  const syncToken = trimmedEnv("AILLIUM_RUNTIME_TOKEN") ?? trimmedEnv("OPERATOR_RUNTIME_TOKEN");
   if (!baseUrl || !syncToken) {
     return null;
   }
@@ -98,9 +90,7 @@ export function getAilliumBoundary(): AilliumIntegrationBoundary {
     return cachedBoundary;
   }
   const config = resolveAilliumCoreConfig();
-  cachedBoundary = config
-    ? createLiveAilliumBoundary(config)
-    : createDefaultAilliumBoundary();
+  cachedBoundary = config ? createLiveAilliumBoundary(config) : createDefaultAilliumBoundary();
   return cachedBoundary;
 }
 
@@ -173,7 +163,7 @@ export async function registerOperatorRuntimeBestEffort(
         ...(tenantId ? { tenantId } : {}),
         ...(runtimeSessionKey ? { runtimeSessionKey } : {}),
         host: hostname(),
-        ...(options.metadata ?? {}),
+        ...options.metadata,
       },
     });
     if (result.registered) {
@@ -181,7 +171,9 @@ export async function registerOperatorRuntimeBestEffort(
         `aillium: operator runtime registered with Aillium Core (session ${result.externalRuntimeRef ?? "unknown"})`,
       );
     } else {
-      options.log?.warn(`aillium: runtime registration not accepted: ${result.message ?? "unknown"}`);
+      options.log?.warn(
+        `aillium: runtime registration not accepted: ${result.message ?? "unknown"}`,
+      );
     }
     return result.registered;
   } catch (err) {

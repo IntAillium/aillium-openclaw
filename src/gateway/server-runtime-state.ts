@@ -1,5 +1,6 @@
 import type { Server as HttpServer } from "node:http";
 import { WebSocketServer } from "ws";
+import { registerOperatorRuntimeBestEffort } from "../aillium/boundary-runtime.js";
 import { CANVAS_HOST_PATH } from "../canvas-host/a2ui.js";
 import { type CanvasHostHandler, createCanvasHostHandler } from "../canvas-host/server.js";
 import type { CliDeps } from "../cli/deps.js";
@@ -31,7 +32,6 @@ import {
 import type { DedupeEntry } from "./server-shared.js";
 import { createGatewayHooksRequestHandler } from "./server/hooks.js";
 import { listenGatewayHttpServer } from "./server/http-listen.js";
-import { registerOperatorRuntimeBestEffort } from "../aillium/boundary-runtime.js";
 import {
   createGatewayPluginRequestHandler,
   shouldEnforceGatewayAuthForPluginPath,
