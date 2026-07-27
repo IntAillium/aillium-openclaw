@@ -12,6 +12,7 @@ import { resolveAgentAvatar } from "../agents/identity-avatar.js";
 import { CANVAS_WS_PATH, handleA2uiHttpRequest } from "../canvas-host/a2ui.js";
 import type { CanvasHostHandler } from "../canvas-host/server.js";
 import { loadConfig } from "../config/config.js";
+import { handleAilliumBrowserRequest } from "./aillium-browser-http.js";
 import { handleAilliumMcpHttpRequest } from "./aillium-mcp-http.js";
 import { type AuthRateLimiter } from "./auth-rate-limit.js";
 import {
@@ -412,6 +413,10 @@ export function createGatewayHttpServer(opts: {
         {
           name: "aillium-mcp",
           run: () => handleAilliumMcpHttpRequest(req, res, requestPath),
+        },
+        {
+          name: "aillium-browser",
+          run: () => handleAilliumBrowserRequest(req, res, requestPath),
         },
         {
           name: "slack",
