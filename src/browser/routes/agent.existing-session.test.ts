@@ -22,6 +22,14 @@ const routeState = vi.hoisted(() => ({
 }));
 
 const chromeMcpMocks = vi.hoisted(() => ({
+  clickChromeMcpElement: vi.fn(
+    async (_params: {
+      profileName: string;
+      targetId: string;
+      uid: string;
+      signal?: AbortSignal;
+    }) => {},
+  ),
   evaluateChromeMcpScript: vi.fn(
     async (_params: { profileName: string; targetId: string; fn: string }) => true,
   ),
@@ -36,7 +44,7 @@ const chromeMcpMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../chrome-mcp.js", () => ({
-  clickChromeMcpElement: vi.fn(async () => {}),
+  clickChromeMcpElement: chromeMcpMocks.clickChromeMcpElement,
   closeChromeMcpTab: vi.fn(async () => {}),
   dragChromeMcpElement: vi.fn(async () => {}),
   evaluateChromeMcpScript: chromeMcpMocks.evaluateChromeMcpScript,
@@ -129,6 +137,8 @@ function getActPostHandler() {
 describe("existing-session browser routes", () => {
   beforeEach(() => {
     routeState.profileCtx.ensureTabAvailable.mockClear();
+    chromeMcpMocks.clickChromeMcpElement.mockReset();
+    chromeMcpMocks.clickChromeMcpElement.mockResolvedValue(undefined);
     chromeMcpMocks.evaluateChromeMcpScript.mockReset();
     chromeMcpMocks.navigateChromeMcpPage.mockClear();
     chromeMcpMocks.takeChromeMcpScreenshot.mockClear();
@@ -248,5 +258,44 @@ describe("existing-session browser routes", () => {
       targetId: "7",
       fn: "() => window.location.href",
     });
+  });
+
+  it("propagates cancellation into an in-flight existing-session action", async () => {
+    const controller = new AbortController();
+    let remoteStopped = false;
+    chromeMcpMocks.clickChromeMcpElement.mockImplementation(
+      async ({ signal }: { signal?: AbortSignal }) =>
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              remoteStopped = true;
+              reject(signal.reason ?? new Error("aborted"));
+            },
+            { once: true },
+          );
+        }),
+    );
+
+    const handler = getActPostHandler();
+    const response = createBrowserRouteResponse();
+    const operation = handler?.(
+      {
+        params: {},
+        query: {},
+        body: { kind: "click", ref: "btn-1" },
+        signal: controller.signal,
+      },
+      response.res,
+    );
+    await vi.waitFor(() => expect(chromeMcpMocks.clickChromeMcpElement).toHaveBeenCalledTimes(1));
+    expect(chromeMcpMocks.clickChromeMcpElement).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+
+    controller.abort(new Error("run cancelled"));
+    await expect(operation).rejects.toThrow("run cancelled");
+    expect(remoteStopped).toBe(true);
+    expect(response.body).toBeUndefined();
   });
 });

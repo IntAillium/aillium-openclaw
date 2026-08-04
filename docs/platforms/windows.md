@@ -44,6 +44,32 @@ Current caveats:
 - if `schtasks` itself wedges or stops responding, OpenClaw now aborts that path quickly and falls back instead of hanging forever
 - Scheduled Tasks are still preferred when available because they provide better supervisor status
 
+### Native process containment boundary
+
+Native Windows agent/tool processes must be launched through a Windows Job Object. OpenClaw's
+platform-neutral contract lives in
+`src/process/supervisor/windows-process-owner.ts` and deliberately refuses an unowned native launch.
+The bridge must perform this order atomically:
+
+1. `CreateJobObjectW` with the supplied exact job name.
+2. `SetInformationJobObject(JobObjectExtendedLimitInformation)` with
+   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+3. `CreateProcessW` with `CREATE_SUSPENDED` and captured stdio handles.
+4. `AssignProcessToJobObject`.
+5. Query membership and verify the root PID is in that exact job.
+6. `ResumeThread` only after verification.
+
+The required native bridge methods are `createJob`, `openJob`, `setKillOnJobClose`,
+`createProcessSuspended`, `assignProcess`, `resumePrimaryThread`, `queryJob`,
+`queryProcessIdentity`, `terminateProcess`, `terminateJob`, `waitForJobEmpty`,
+`closeProcessHandles`, and `closeJob`. Process identity must include the Windows process creation
+time, not only the PID, so restart reconciliation cannot kill a recycled PID.
+
+No native package is currently bundled or approved. Adding one requires dependency review and must
+implement the exported `WindowsNativeJobBridge` interface without a shell or `taskkill` fallback.
+Until that bridge is installed, native Windows supervised execution fails closed; WSL2 remains the
+supported execution path. Real Windows Job Object E2E coverage is tracked as `PSB-004`.
+
 If you want the native CLI only, without gateway service install, use one of these:
 
 ```powershell

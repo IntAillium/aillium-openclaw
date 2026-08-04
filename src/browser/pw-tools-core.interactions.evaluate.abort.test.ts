@@ -3,7 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 let page: { evaluate: ReturnType<typeof vi.fn> } | null = null;
 let locator: { evaluate: ReturnType<typeof vi.fn> } | null = null;
 
-const forceDisconnectPlaywrightForTarget = vi.fn(async () => {});
+const cancelPlaywrightTargetOperations = vi.fn(async () => {});
 const getPageForTargetId = vi.fn(async () => {
   if (!page) {
     throw new Error("test: page not set");
@@ -22,7 +22,7 @@ const refLocator = vi.fn(() => {
 vi.mock("./pw-session.js", () => {
   return {
     ensurePageState,
-    forceDisconnectPlaywrightForTarget,
+    cancelPlaywrightTargetOperations,
     getPageForTargetId,
     refLocator,
     restoreRoleRefsForTarget,
@@ -78,6 +78,7 @@ describe("evaluateViaPlaywright (abort)", () => {
 
     const p = evaluateViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
+      targetId: "tab-a",
       fn,
       ref,
       signal: ctrl.signal,
@@ -87,6 +88,10 @@ describe("evaluateViaPlaywright (abort)", () => {
     ctrl.abort(new Error("aborted by test"));
 
     await expect(p).rejects.toThrow("aborted by test");
-    expect(forceDisconnectPlaywrightForTarget).toHaveBeenCalled();
+    expect(cancelPlaywrightTargetOperations).toHaveBeenCalledWith({
+      cdpUrl: "http://127.0.0.1:9222",
+      targetId: "tab-a",
+      reason: "evaluate aborted",
+    });
   });
 });

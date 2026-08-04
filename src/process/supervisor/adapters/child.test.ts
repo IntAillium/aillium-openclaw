@@ -77,31 +77,31 @@ describe("createChildAdapter", () => {
       fallbacks?: Array<{ options?: { detached?: boolean } }>;
     };
     // On Windows, detached defaults to false (headless Scheduled Task compat);
-    // on POSIX, detached is true with a no-detach fallback.
+    // on POSIX, each supervised run owns a distinct process group.
     if (process.platform === "win32") {
       expect(spawnArgs.options?.detached).toBe(false);
       expect(spawnArgs.fallbacks).toEqual([]);
     } else {
       expect(spawnArgs.options?.detached).toBe(true);
-      expect(spawnArgs.fallbacks?.[0]?.options?.detached).toBe(false);
+      expect(spawnArgs.fallbacks).toEqual([]);
     }
 
     adapter.kill();
 
-    expect(killProcessTreeMock).toHaveBeenCalledWith(4321);
+    expect(killProcessTreeMock).toHaveBeenCalledWith(4321, { graceMs: undefined });
     expect(killMock).not.toHaveBeenCalled();
   });
 
-  it("uses direct child.kill for non-SIGKILL signals", async () => {
+  it("uses process-tree kill for cooperative signals", async () => {
     const { adapter, killMock } = await createAdapterHarness({ pid: 7654 });
 
     adapter.kill("SIGTERM");
 
-    expect(killProcessTreeMock).not.toHaveBeenCalled();
-    expect(killMock).toHaveBeenCalledWith("SIGTERM");
+    expect(killProcessTreeMock).toHaveBeenCalledWith(7654, { graceMs: undefined });
+    expect(killMock).not.toHaveBeenCalled();
   });
 
-  it("disables detached mode in service-managed runtime", async () => {
+  it("keeps a tree-safe process group in service-managed runtime", async () => {
     process.env.OPENCLAW_SERVICE_MARKER = "openclaw";
 
     await createAdapterHarness({ pid: 7777 });
@@ -110,8 +110,8 @@ describe("createChildAdapter", () => {
       options?: { detached?: boolean };
       fallbacks?: Array<{ options?: { detached?: boolean } }>;
     };
-    expect(spawnArgs.options?.detached).toBe(false);
-    expect(spawnArgs.fallbacks ?? []).toEqual([]);
+    expect(spawnArgs.options?.detached).toBe(process.platform !== "win32");
+    expect(spawnArgs.fallbacks).toEqual([]);
   });
 
   it("keeps inherited env when no override env is provided", async () => {

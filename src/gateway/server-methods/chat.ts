@@ -3,6 +3,10 @@ import path from "node:path";
 import { CURRENT_SESSION_VERSION } from "@mariozechner/pi-coding-agent";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { resolveThinkingDefault } from "../../agents/model-selection.js";
+import {
+  abortEmbeddedPiRunByRunId,
+  isEmbeddedPiRunActiveByRunId,
+} from "../../agents/pi-embedded-runner/runs.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { dispatchInboundMessage } from "../../auto-reply/dispatch.js";
 import { createReplyDispatcher } from "../../auto-reply/reply/reply-dispatcher.js";
@@ -25,6 +29,20 @@ import {
   isWebchatClient,
   normalizeMessageChannel,
 } from "../../utils/message-channel.js";
+import {
+  verifyForceAbortAuthority,
+  type ForceAbortAuthority,
+} from "../aillium-force-abort-authority.js";
+import {
+  GOVERNED_OPERATION_SECRET_ENV,
+  verifyGovernedOperationAuthority,
+  type GovernedOperationAuthority,
+} from "../aillium-governed-operation-authority.js";
+import {
+  digestGovernedOperationRequest,
+  getGovernedOperationStore,
+  type GovernedOperationIdentity,
+} from "../aillium-governed-operation-store.js";
 import {
   abortChatRunById,
   type ChatAbortControllerEntry,
@@ -1022,7 +1040,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       verboseLevel,
     });
   },
-  "chat.abort": ({ params, respond, context, client }) => {
+  "chat.abort": async ({ params, respond, context, client }) => {
     if (!validateChatAbortParams(params)) {
       respond(
         false,
@@ -1034,13 +1052,107 @@ export const chatHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const { sessionKey: rawSessionKey, runId } = params as {
+    const {
+      sessionKey: rawSessionKey,
+      runId,
+      force,
+      deadlineMs,
+      forceAuthority,
+    } = params as {
       sessionKey: string;
       runId?: string;
+      force?: boolean;
+      deadlineMs?: number;
+      forceAuthority?: ForceAbortAuthority;
     };
 
     const ops = createChatAbortOps(context);
     const requester = resolveChatAbortRequester(client);
+
+    if (force) {
+      if (!runId) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "force requires runId"));
+        return;
+      }
+      if (!requester.isAdmin || !forceAuthority) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unauthorized"));
+        return;
+      }
+      const forceSecret = process.env.AILLIUM_FORCE_ABORT_SIGNING_SECRET?.trim() || "";
+      try {
+        verifyForceAbortAuthority({
+          authority: forceAuthority,
+          secret: forceSecret,
+          sessionKey: rawSessionKey,
+          runId,
+        });
+      } catch {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unauthorized"));
+        return;
+      }
+      const controllerEntry = context.chatAbortControllers.get(runId);
+      if (controllerEntry) {
+        if (controllerEntry.sessionKey !== rawSessionKey) {
+          respond(
+            false,
+            undefined,
+            errorShape(ErrorCodes.INVALID_REQUEST, "runId does not match sessionKey"),
+          );
+          return;
+        }
+        if (!canRequesterAbortChatRun(controllerEntry, requester)) {
+          respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unauthorized"));
+          return;
+        }
+        abortChatRunById(ops, {
+          runId,
+          sessionKey: rawSessionKey,
+          stopReason: "rpc",
+        });
+      }
+      const teardown = await abortEmbeddedPiRunByRunId(runId, {
+        deadlineMs: Math.min(650, deadlineMs ?? 650),
+        expectedSessionKey: rawSessionKey,
+        forceProcessTeardown: true,
+      });
+      const active = isEmbeddedPiRunActiveByRunId(runId, rawSessionKey);
+      const runtimeVerified = Boolean(
+        teardown.acknowledged &&
+        teardown.runId === runId &&
+        teardown.sessionKey === rawSessionKey &&
+        teardown.runDrained &&
+        teardown.processTeardown.teardownComplete &&
+        teardown.teardownComplete &&
+        !active,
+      );
+      respond(true, {
+        ok: runtimeVerified,
+        aborted: runtimeVerified,
+        runIds: runtimeVerified ? [runId] : [],
+        sessionKey: rawSessionKey,
+        runId,
+        runtimeVerified,
+        teardownComplete: runtimeVerified,
+        active,
+        cancellation: {
+          acknowledged: runtimeVerified,
+          cooperativeAbortRequested: teardown.cooperativeAbortRequested,
+          runDrained: teardown.runDrained,
+          processTeardown: teardown.processTeardown,
+          teardownComplete: teardown.teardownComplete,
+          forcedDeadlineMs: Math.min(650, deadlineMs ?? 650),
+          observedWithinMs: teardown.elapsedMs,
+          authority: {
+            tenantId: forceAuthority.tenantId,
+            sessionKey: forceAuthority.sessionKey,
+            runId: forceAuthority.runId,
+            fenceToken: forceAuthority.fenceToken,
+            cancellationGeneration: forceAuthority.cancellationGeneration,
+          },
+        },
+      });
+      return;
+    }
 
     if (!runId) {
       const res = abortChatRunsForSessionKeyWithPartials({
@@ -1097,10 +1209,24 @@ export const chatHandlers: GatewayRequestHandlers = {
         ],
       });
     }
+    const teardown = res.aborted
+      ? await abortEmbeddedPiRunByRunId(runId, { deadlineMs: 1_800 })
+      : undefined;
     respond(true, {
       ok: true,
       aborted: res.aborted,
       runIds: res.aborted ? [runId] : [],
+      cancellation: teardown
+        ? {
+            acknowledged: teardown.acknowledged,
+            cooperativeAbortRequested: teardown.cooperativeAbortRequested,
+            runDrained: teardown.runDrained,
+            processTeardown: teardown.processTeardown,
+            teardownComplete: teardown.teardownComplete,
+            forcedDeadlineMs: 1_800,
+            observedWithinMs: teardown.elapsedMs,
+          }
+        : undefined,
     });
   },
   "chat.send": async ({ params, respond, context, client }) => {
@@ -1133,6 +1259,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       systemInputProvenance?: InputProvenance;
       systemProvenanceReceipt?: string;
       idempotencyKey: string;
+      governedOperationAuthority?: GovernedOperationAuthority;
     };
     if ((p.systemInputProvenance || p.systemProvenanceReceipt) && !isAcpBridgeClient(client)) {
       respond(
@@ -1196,6 +1323,55 @@ export const chatHandlers: GatewayRequestHandlers = {
     });
     const now = Date.now();
     const clientRunId = p.idempotencyKey;
+    let governedOperation:
+      | {
+          identity: GovernedOperationIdentity;
+          requestDigest: string;
+          store: ReturnType<typeof getGovernedOperationStore>;
+        }
+      | undefined;
+
+    if (p.governedOperationAuthority) {
+      if (!resolveChatAbortRequester(client).isAdmin) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unauthorized"));
+        return;
+      }
+      const secret = process.env[GOVERNED_OPERATION_SECRET_ENV]?.trim() || "";
+      try {
+        const authority = verifyGovernedOperationAuthority({
+          authority: p.governedOperationAuthority,
+          secret,
+          sessionKey: rawSessionKey,
+          operationId: clientRunId,
+        });
+        const identity: GovernedOperationIdentity = {
+          tenantId: authority.tenantId,
+          taskId: authority.taskId,
+          executionRef: authority.executionRef,
+          sessionKey: authority.sessionKey,
+          operationId: authority.operationId,
+          idempotencyKey: authority.idempotencyKey,
+          fenceToken: authority.fenceToken,
+          cancellationGeneration: authority.cancellationGeneration,
+        };
+        governedOperation = {
+          identity,
+          requestDigest: digestGovernedOperationRequest({
+            sessionKey: rawSessionKey,
+            message: inboundMessage,
+            model: p.model?.trim() || null,
+            authProfileId: p.authProfileId?.trim() || null,
+            thinking: p.thinking ?? null,
+            deliver: p.deliver ?? false,
+            attachments: normalizedAttachments,
+          }),
+          store: getGovernedOperationStore(),
+        };
+      } catch {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unauthorized"));
+        return;
+      }
+    }
 
     const sendPolicy = resolveSendPolicy({
       cfg,
@@ -1230,7 +1406,47 @@ export const chatHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    const cached = context.dedupe.get(`chat:${clientRunId}`);
+    if (governedOperation) {
+      let reservation;
+      try {
+        reservation = governedOperation.store.reserve({
+          identity: governedOperation.identity,
+          requestDigest: governedOperation.requestDigest,
+        });
+      } catch (error) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.UNAVAILABLE,
+            `unable to durably reserve governed operation: ${String(error)}`,
+          ),
+        );
+        return;
+      }
+      if (reservation.kind === "conflict") {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, reservation.reason));
+        return;
+      }
+      if (reservation.kind === "existing") {
+        respond(
+          true,
+          {
+            runId: reservation.record.runId,
+            status:
+              reservation.record.status === "accepted" || reservation.record.status === "running"
+                ? "in_flight"
+                : reservation.record.status,
+            governed: true,
+          },
+          undefined,
+          { cached: true, runId: reservation.record.runId },
+        );
+        return;
+      }
+    }
+
+    const cached = governedOperation ? undefined : context.dedupe.get(`chat:${clientRunId}`);
     if (cached) {
       respond(cached.ok, cached.payload, cached.error, {
         cached: true,
@@ -1238,7 +1454,9 @@ export const chatHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    const activeExisting = context.chatAbortControllers.get(clientRunId);
+    const activeExisting = governedOperation
+      ? undefined
+      : context.chatAbortControllers.get(clientRunId);
     if (activeExisting) {
       respond(true, { runId: clientRunId, status: "in_flight" as const }, undefined, {
         cached: true,
@@ -1258,9 +1476,17 @@ export const chatHandlers: GatewayRequestHandlers = {
         ownerConnId: normalizeOptionalText(client?.connId),
         ownerDeviceId: normalizeOptionalText(client?.connect?.device?.id),
       });
+      if (governedOperation) {
+        governedOperation.store.transition({
+          identity: governedOperation.identity,
+          requestDigest: governedOperation.requestDigest,
+          status: "running",
+        });
+      }
       const ackPayload = {
         runId: clientRunId,
         status: "started" as const,
+        ...(governedOperation ? { governed: true as const } : {}),
       };
       respond(true, ackPayload, undefined, { runId: clientRunId });
 
@@ -1374,6 +1600,12 @@ export const chatHandlers: GatewayRequestHandlers = {
         },
       })
         .then(() => {
+          const exactReplyText = deliveredReplies
+            .filter((entry) => entry.kind === "final")
+            .map((entry) => entry.payload.text?.trim() ?? "")
+            .filter(Boolean)
+            .join("\n\n")
+            .trim();
           if (!agentRunStarted) {
             const btwReplies = deliveredReplies
               .map((entry) => entry.payload)
@@ -1457,6 +1689,21 @@ export const chatHandlers: GatewayRequestHandlers = {
               payload: { runId: clientRunId, status: "ok" as const },
             },
           });
+          if (governedOperation) {
+            try {
+              governedOperation.store.transition({
+                identity: governedOperation.identity,
+                requestDigest: governedOperation.requestDigest,
+                status: "succeeded",
+                outputText: exactReplyText,
+                error: null,
+              });
+            } catch (persistError) {
+              context.logGateway.error(
+                `governed operation success receipt persist failed: ${formatForLog(persistError)}`,
+              );
+            }
+          }
         })
         .catch((err) => {
           const error = errorShape(ErrorCodes.UNAVAILABLE, String(err));
@@ -1474,6 +1721,21 @@ export const chatHandlers: GatewayRequestHandlers = {
               error,
             },
           });
+          if (governedOperation) {
+            try {
+              governedOperation.store.transition({
+                identity: governedOperation.identity,
+                requestDigest: governedOperation.requestDigest,
+                status: "failed",
+                outputText: null,
+                error: String(err),
+              });
+            } catch (persistError) {
+              context.logGateway.error(
+                `governed operation failure receipt persist failed: ${formatForLog(persistError)}`,
+              );
+            }
+          }
           broadcastChatError({
             context,
             runId: clientRunId,
@@ -1501,6 +1763,21 @@ export const chatHandlers: GatewayRequestHandlers = {
           error,
         },
       });
+      if (governedOperation) {
+        try {
+          governedOperation.store.transition({
+            identity: governedOperation.identity,
+            requestDigest: governedOperation.requestDigest,
+            status: "failed",
+            outputText: null,
+            error: String(err),
+          });
+        } catch (persistError) {
+          context.logGateway.error(
+            `governed operation failure receipt persist failed: ${formatForLog(persistError)}`,
+          );
+        }
+      }
       respond(false, payload, error, {
         runId: clientRunId,
         error: formatForLog(err),

@@ -45,6 +45,16 @@ export type ManagedRun = {
   cancel: (reason?: TerminationReason) => void;
 };
 
+export type ProcessCancellationResult = {
+  requested: boolean;
+  matchedRunIds: string[];
+  terminatedRunIds: string[];
+  remainingRunIds: string[];
+  deadlineMs: number;
+  elapsedMs: number;
+  teardownComplete: boolean;
+};
+
 export type SpawnMode = "child" | "pty";
 
 export type ManagedRunStdin = {
@@ -101,6 +111,14 @@ export interface ProcessSupervisor {
   spawn(input: SpawnInput): Promise<ManagedRun>;
   cancel(runId: string, reason?: TerminationReason): void;
   cancelScope(scopeKey: string, reason?: TerminationReason): void;
+  cancelScopeAndWait(
+    scopeKey: string,
+    opts?: { reason?: TerminationReason; deadlineMs?: number; force?: boolean },
+  ): Promise<ProcessCancellationResult>;
+  consumeVerifiedTeardownReceipt(
+    scopeKey: string,
+    sessionId: string,
+  ): Promise<ProcessCancellationResult | undefined>;
   reconcileOrphans(): Promise<void>;
   getRecord(runId: string): RunRecord | undefined;
 }

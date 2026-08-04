@@ -31,6 +31,27 @@ export const ChatHistoryParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const GovernedOperationAuthoritySchema = Type.Object(
+  {
+    version: Type.Literal(1),
+    issuer: Type.Literal("aillium-core"),
+    audience: Type.Literal("openclaw:governed-operation"),
+    tenantId: NonEmptyString,
+    taskId: NonEmptyString,
+    executionRef: NonEmptyString,
+    sessionKey: ChatSendSessionKeyString,
+    operationId: NonEmptyString,
+    idempotencyKey: NonEmptyString,
+    fenceToken: Type.String({ pattern: "^(0|[1-9]\\d*)$" }),
+    cancellationGeneration: Type.Integer({ minimum: 0 }),
+    issuedAt: NonEmptyString,
+    expiresAt: NonEmptyString,
+    nonce: NonEmptyString,
+    signature: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+
 export const ChatSendParamsSchema = Type.Object(
   {
     sessionKey: ChatSendSessionKeyString,
@@ -45,6 +66,14 @@ export const ChatSendParamsSchema = Type.Object(
     systemInputProvenance: Type.Optional(InputProvenanceSchema),
     systemProvenanceReceipt: Type.Optional(Type.String()),
     idempotencyKey: NonEmptyString,
+    governedOperationAuthority: Type.Optional(GovernedOperationAuthoritySchema),
+  },
+  { additionalProperties: false },
+);
+
+export const GovernedOperationResultParamsSchema = Type.Object(
+  {
+    authority: GovernedOperationAuthoritySchema,
   },
   { additionalProperties: false },
 );
@@ -53,6 +82,27 @@ export const ChatAbortParamsSchema = Type.Object(
   {
     sessionKey: NonEmptyString,
     runId: Type.Optional(NonEmptyString),
+    force: Type.Optional(Type.Boolean()),
+    deadlineMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 650 })),
+    forceAuthority: Type.Optional(
+      Type.Object(
+        {
+          version: Type.Literal(1),
+          issuer: Type.Literal("aillium-core"),
+          audience: Type.Literal("openclaw:chat.abort.force"),
+          tenantId: NonEmptyString,
+          sessionKey: NonEmptyString,
+          runId: NonEmptyString,
+          fenceToken: Type.String({ pattern: "^(0|[1-9]\\d*)$" }),
+          cancellationGeneration: Type.Integer({ minimum: 0 }),
+          issuedAt: NonEmptyString,
+          expiresAt: NonEmptyString,
+          nonce: NonEmptyString,
+          signature: NonEmptyString,
+        },
+        { additionalProperties: false },
+      ),
+    ),
   },
   { additionalProperties: false },
 );

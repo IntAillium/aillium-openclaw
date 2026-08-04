@@ -70,6 +70,25 @@ export const NodeInvokeParamsSchema = Type.Object(
     params: Type.Optional(Type.Unknown()),
     timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
     idempotencyKey: NonEmptyString,
+    invocationId: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+
+export const NodeInvokeCancelParamsSchema = Type.Object(
+  {
+    nodeId: NonEmptyString,
+    invocationId: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+
+export const NodeInvokeCancelResultParamsSchema = Type.Object(
+  {
+    nodeId: NonEmptyString,
+    invocationId: NonEmptyString,
+    acknowledged: Type.Boolean(),
+    completed: Type.Boolean(),
   },
   { additionalProperties: false },
 );
@@ -161,6 +180,14 @@ export const NodeInvokeRequestEventSchema = Type.Object(
     paramsJSON: Type.Optional(Type.String()),
     timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
     idempotencyKey: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+
+export const NodeInvokeCancelEventSchema = Type.Object(
+  {
+    nodeId: NonEmptyString,
+    invocationId: NonEmptyString,
   },
   { additionalProperties: false },
 );

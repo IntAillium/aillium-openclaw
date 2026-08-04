@@ -45,6 +45,7 @@ type CallGatewayBaseOptions = {
   params?: unknown;
   expectFinal?: boolean;
   timeoutMs?: number;
+  abortSignal?: AbortSignal;
   clientName?: GatewayClientName;
   clientDisplayName?: string;
   clientVersion?: string;
@@ -808,12 +809,47 @@ async function executeGatewayRequestWithScopes<T>(params: {
   return await new Promise<T>((resolve, reject) => {
     let settled = false;
     let ignoreClose = false;
+    let requestStarted = false;
+    let cancellationStarted = false;
+    let deferredRequestOutcome: { ok: true; value: T } | { ok: false; error: Error } | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    let client: GatewayClient | undefined;
+    const abortSignal = opts.abortSignal;
+    const rawParams =
+      opts.params && typeof opts.params === "object"
+        ? (opts.params as Record<string, unknown>)
+        : undefined;
+    const nodeInvocation =
+      opts.method === "node.invoke" && typeof rawParams?.nodeId === "string"
+        ? {
+            nodeId: rawParams.nodeId,
+            invocationId:
+              typeof rawParams.invocationId === "string" && rawParams.invocationId.trim()
+                ? rawParams.invocationId.trim()
+                : randomUUID(),
+          }
+        : undefined;
+    const requestParams = nodeInvocation
+      ? { ...rawParams, invocationId: nodeInvocation.invocationId }
+      : opts.params;
+    const abortError = () => {
+      const reason = abortSignal?.reason;
+      if (reason instanceof Error) {
+        return reason;
+      }
+      const error = new Error("Gateway request aborted", reason ? { cause: reason } : undefined);
+      error.name = "AbortError";
+      return error;
+    };
     const stop = (err?: Error, value?: T) => {
       if (settled) {
         return;
       }
       settled = true;
-      clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
+      abortSignal?.removeEventListener("abort", onAbort);
       if (err) {
         reject(err);
       } else {
@@ -821,7 +857,70 @@ async function executeGatewayRequestWithScopes<T>(params: {
       }
     };
 
-    const client = new GatewayClient({
+    const onAbort = () => {
+      if (cancellationStarted || settled) {
+        return;
+      }
+      cancellationStarted = true;
+      if (!client || !requestStarted || !nodeInvocation) {
+        ignoreClose = true;
+        client?.stop();
+        stop(abortError());
+        return;
+      }
+      void client
+        .request<{ acknowledged?: boolean; completed?: boolean }>(
+          "node.invoke.cancel",
+          {
+            nodeId: nodeInvocation.nodeId,
+            invocationId: nodeInvocation.invocationId,
+          },
+          { timeoutMs: 1_500 },
+        )
+        .then((result) => {
+          if (result.acknowledged === true && result.completed === true) {
+            ignoreClose = true;
+            client?.stop();
+            stop(abortError());
+            return;
+          }
+          // Do not treat a rejected/unverified cancellation as teardown. Keep
+          // the caller alive until the exact invocation produces a real result.
+          cancellationStarted = false;
+          const deferred = deferredRequestOutcome;
+          deferredRequestOutcome = undefined;
+          if (deferred?.ok) {
+            ignoreClose = true;
+            client?.stop();
+            stop(undefined, deferred.value);
+          } else if (deferred) {
+            ignoreClose = true;
+            client?.stop();
+            stop(deferred.error);
+          }
+        })
+        .catch(() => {
+          cancellationStarted = false;
+          const deferred = deferredRequestOutcome;
+          deferredRequestOutcome = undefined;
+          if (deferred?.ok) {
+            ignoreClose = true;
+            client?.stop();
+            stop(undefined, deferred.value);
+          } else if (deferred) {
+            ignoreClose = true;
+            client?.stop();
+            stop(deferred.error);
+          }
+        });
+    };
+
+    if (abortSignal?.aborted) {
+      stop(abortError());
+      return;
+    }
+
+    client = new GatewayClient({
       url,
       token,
       password,
@@ -846,16 +945,25 @@ async function executeGatewayRequestWithScopes<T>(params: {
             methods: hello.features?.methods,
             attemptedMethod: opts.method,
           });
-          const result = await client.request<T>(opts.method, opts.params, {
+          requestStarted = true;
+          const result = await client!.request<T>(opts.method, requestParams, {
             expectFinal: opts.expectFinal,
             timeoutMs: opts.timeoutMs,
           });
+          if (cancellationStarted) {
+            deferredRequestOutcome = { ok: true, value: result };
+            return;
+          }
           ignoreClose = true;
           stop(undefined, result);
-          client.stop();
+          client!.stop();
         } catch (err) {
+          if (cancellationStarted) {
+            deferredRequestOutcome = { ok: false, error: err as Error };
+            return;
+          }
           ignoreClose = true;
-          client.stop();
+          client!.stop();
           stop(err as Error);
         }
       },
@@ -864,12 +972,13 @@ async function executeGatewayRequestWithScopes<T>(params: {
           return;
         }
         ignoreClose = true;
-        client.stop();
+        client?.stop();
         stop(new Error(formatGatewayCloseError(code, reason, params.connectionDetails)));
       },
     });
 
-    const timer = setTimeout(() => {
+    abortSignal?.addEventListener("abort", onAbort, { once: true });
+    timer = setTimeout(() => {
       ignoreClose = true;
       client.stop();
       stop(new Error(formatGatewayTimeoutError(timeoutMs, params.connectionDetails)));

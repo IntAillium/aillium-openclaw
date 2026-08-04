@@ -9,7 +9,7 @@ const getPageForTargetId = vi.fn(async () => {
   return page;
 });
 const ensurePageState = vi.fn(() => {});
-const forceDisconnectPlaywrightForTarget = vi.fn(async () => {});
+const cancelPlaywrightTargetOperations = vi.fn(async () => {});
 const refLocator = vi.fn(() => {
   throw new Error("test: refLocator should not be called");
 });
@@ -20,7 +20,7 @@ const resizeViewportViaPlaywright = vi.fn(async () => {});
 
 vi.mock("./pw-session.js", () => ({
   ensurePageState,
-  forceDisconnectPlaywrightForTarget,
+  cancelPlaywrightTargetOperations,
   getPageForTargetId,
   refLocator,
   restoreRoleRefsForTarget,

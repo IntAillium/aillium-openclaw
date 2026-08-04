@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { importFreshModule } from "../../../test/helpers/import-fresh.js";
+import { getProcessSupervisor } from "../../process/supervisor/index.js";
 import {
   __testing,
+  abortEmbeddedPiRunByRunId,
   abortEmbeddedPiRun,
   clearActiveEmbeddedRun,
   getActiveEmbeddedRunSnapshot,
+  isEmbeddedPiRunActive,
   setActiveEmbeddedRun,
   updateActiveEmbeddedRunSnapshot,
   waitForActiveEmbeddedRuns,
@@ -162,5 +165,98 @@ describe("pi-embedded runner run registry", () => {
 
     clearActiveEmbeddedRun("session-snapshot", handle);
     expect(getActiveEmbeddedRunSnapshot("session-snapshot")).toBeUndefined();
+  });
+
+  it("cancels one run without affecting another active run", async () => {
+    const abortA = vi.fn();
+    const abortB = vi.fn();
+    const handleA = {
+      runId: "run-a",
+      processScopeKey: "run:run-a",
+      queueMessage: async () => {},
+      isStreaming: () => true,
+      isCompacting: () => false,
+      abort: abortA,
+    };
+    const handleB = {
+      runId: "run-b",
+      processScopeKey: "run:run-b",
+      queueMessage: async () => {},
+      isStreaming: () => true,
+      isCompacting: () => false,
+      abort: abortB,
+    };
+    abortA.mockImplementation(() => clearActiveEmbeddedRun("session-a", handleA));
+    setActiveEmbeddedRun("session-a", handleA, "tenant:session-a");
+    setActiveEmbeddedRun("session-b", handleB, "tenant:session-b");
+
+    const result = await abortEmbeddedPiRunByRunId("run-a", {
+      deadlineMs: 500,
+      expectedSessionKey: "tenant:session-a",
+    });
+
+    expect(result.acknowledged).toBe(true);
+    expect(result.runDrained).toBe(true);
+    expect(result.teardownComplete).toBe(true);
+    expect(result.sessionKey).toBe("tenant:session-a");
+    expect(abortA).toHaveBeenCalledTimes(1);
+    expect(abortB).not.toHaveBeenCalled();
+    expect(isEmbeddedPiRunActive("session-b")).toBe(true);
+  });
+
+  it("does not abort a run when the expected session key does not match", async () => {
+    const abort = vi.fn();
+    const handle = {
+      runId: "run-a",
+      processScopeKey: "run:run-a",
+      queueMessage: async () => {},
+      isStreaming: () => true,
+      isCompacting: () => false,
+      abort,
+    };
+    setActiveEmbeddedRun("session-a", handle, "tenant:session-a");
+
+    const result = await abortEmbeddedPiRunByRunId("run-a", {
+      deadlineMs: 500,
+      expectedSessionKey: "tenant:different",
+    });
+
+    expect(result).toMatchObject({
+      acknowledged: false,
+      runDrained: false,
+      teardownComplete: false,
+    });
+    expect(abort).not.toHaveBeenCalled();
+    expect(isEmbeddedPiRunActive("session-a")).toBe(true);
+  });
+
+  it("accepts exact durable teardown proof when the embedded registry was lost on restart", async () => {
+    const supervisor = getProcessSupervisor();
+    const consume = vi.spyOn(supervisor, "consumeVerifiedTeardownReceipt").mockResolvedValue({
+      requested: true,
+      matchedRunIds: ["owned-process-run"],
+      terminatedRunIds: ["owned-process-run"],
+      remainingRunIds: [],
+      deadlineMs: 0,
+      elapsedMs: 2,
+      teardownComplete: true,
+    });
+
+    const result = await abortEmbeddedPiRunByRunId("canonical-run", {
+      deadlineMs: 500,
+      expectedSessionKey: "tenant:session-a",
+      forceProcessTeardown: true,
+    });
+
+    expect(consume).toHaveBeenCalledWith("run:canonical-run", "tenant:session-a");
+    expect(result).toMatchObject({
+      runId: "canonical-run",
+      sessionKey: "tenant:session-a",
+      acknowledged: true,
+      cooperativeAbortRequested: false,
+      runDrained: true,
+      teardownComplete: true,
+      processTeardown: { teardownComplete: true },
+    });
   });
 });

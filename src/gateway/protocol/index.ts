@@ -62,6 +62,8 @@ import {
   type ChatInjectParams,
   ChatInjectParamsSchema,
   ChatSendParamsSchema,
+  type GovernedOperationResultParams,
+  GovernedOperationResultParamsSchema,
   type ConfigApplyParams,
   ConfigApplyParamsSchema,
   type ConfigGetParams,
@@ -151,6 +153,10 @@ import {
   type NodePendingEnqueueResult,
   NodePendingEnqueueResultSchema,
   type NodeInvokeParams,
+  type NodeInvokeCancelParams,
+  NodeInvokeCancelParamsSchema,
+  type NodeInvokeCancelResultParams,
+  NodeInvokeCancelResultParamsSchema,
   NodeInvokeParamsSchema,
   type NodeInvokeResultParams,
   NodeInvokeResultParamsSchema,
@@ -302,6 +308,12 @@ export const validateNodePendingAckParams = ajv.compile<NodePendingAckParams>(
 );
 export const validateNodeDescribeParams = ajv.compile<NodeDescribeParams>(NodeDescribeParamsSchema);
 export const validateNodeInvokeParams = ajv.compile<NodeInvokeParams>(NodeInvokeParamsSchema);
+export const validateNodeInvokeCancelParams = ajv.compile<NodeInvokeCancelParams>(
+  NodeInvokeCancelParamsSchema,
+);
+export const validateNodeInvokeCancelResultParams = ajv.compile<NodeInvokeCancelResultParams>(
+  NodeInvokeCancelResultParamsSchema,
+);
 export const validateNodeInvokeResultParams = ajv.compile<NodeInvokeResultParams>(
   NodeInvokeResultParamsSchema,
 );
@@ -418,6 +430,9 @@ export const validateExecApprovalsNodeSetParams = ajv.compile<ExecApprovalsNodeS
 export const validateLogsTailParams = ajv.compile<LogsTailParams>(LogsTailParamsSchema);
 export const validateChatHistoryParams = ajv.compile(ChatHistoryParamsSchema);
 export const validateChatSendParams = ajv.compile(ChatSendParamsSchema);
+export const validateGovernedOperationResultParams = ajv.compile<GovernedOperationResultParams>(
+  GovernedOperationResultParamsSchema,
+);
 export const validateChatAbortParams = ajv.compile<ChatAbortParams>(ChatAbortParamsSchema);
 export const validateChatInjectParams = ajv.compile<ChatInjectParams>(ChatInjectParamsSchema);
 export const validateChatEvent = ajv.compile(ChatEventSchema);
@@ -491,6 +506,8 @@ export {
   NodeListParamsSchema,
   NodePendingAckParamsSchema,
   NodeInvokeParamsSchema,
+  NodeInvokeCancelParamsSchema,
+  NodeInvokeCancelResultParamsSchema,
   NodePendingDrainParamsSchema,
   NodePendingDrainResultSchema,
   NodePendingEnqueueParamsSchema,
@@ -558,6 +575,7 @@ export {
   LogsTailResultSchema,
   ChatHistoryParamsSchema,
   ChatSendParamsSchema,
+  GovernedOperationResultParamsSchema,
   ChatInjectParamsSchema,
   UpdateRunParamsSchema,
   TickEventSchema,
@@ -584,6 +602,7 @@ export type {
   AgentIdentityResult,
   AgentWaitParams,
   ChatEvent,
+  GovernedOperationResultParams,
   TickEvent,
   ShutdownEvent,
   WakeParams,

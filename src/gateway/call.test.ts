@@ -18,11 +18,16 @@ let lastClientOptions: {
   onHelloOk?: (hello: { features?: { methods?: string[] } }) => void | Promise<void>;
   onClose?: (code: number, reason: string) => void;
 } | null = null;
-let lastRequestOptions: {
+type RequestEntry = {
   method?: string;
   params?: unknown;
   opts?: { expectFinal?: boolean; timeoutMs?: number | null };
-} | null = null;
+};
+let lastRequestOptions: RequestEntry | null = null;
+const requestLog: RequestEntry[] = [];
+let requestHandler:
+  | ((method: string, params: unknown) => Promise<Record<string, unknown>>)
+  | undefined;
 type StartMode = "hello" | "close" | "silent";
 let startMode: StartMode = "hello";
 let closeCode = 1006;
@@ -56,6 +61,10 @@ vi.mock("./client.js", () => ({
       opts?: { expectFinal?: boolean; timeoutMs?: number | null },
     ) {
       lastRequestOptions = { method, params, opts };
+      requestLog.push({ method, params, opts });
+      if (requestHandler) {
+        return await requestHandler(method, params);
+      }
       return { ok: true };
     }
     start() {
@@ -83,6 +92,8 @@ function resetGatewayCallMocks() {
   pickPrimaryLanIPv4.mockClear();
   lastClientOptions = null;
   lastRequestOptions = null;
+  requestLog.length = 0;
+  requestHandler = undefined;
   startMode = "hello";
   closeCode = 1006;
   closeReason = "";
@@ -124,6 +135,103 @@ describe("callGateway url resolution", () => {
 
   afterEach(() => {
     envSnapshot.restore();
+  });
+
+  it("cancels an already-forwarded node invocation and waits for its acknowledgement", async () => {
+    setLocalLoopbackGatewayConfig();
+    const controller = new AbortController();
+    let acknowledgeCancellation: (() => void) | undefined;
+    requestHandler = async (method) => {
+      if (method === "node.invoke") {
+        return await new Promise<Record<string, unknown>>(() => {});
+      }
+      if (method === "node.invoke.cancel") {
+        return await new Promise<Record<string, unknown>>((resolve) => {
+          acknowledgeCancellation = () => resolve({ acknowledged: true, completed: true });
+        });
+      }
+      return { ok: true };
+    };
+
+    const operation = callGateway({
+      method: "node.invoke",
+      params: {
+        nodeId: "node-1",
+        command: "browser.proxy",
+        idempotencyKey: "browser-run-1",
+      },
+      abortSignal: controller.signal,
+      timeoutMs: 5_000,
+    });
+    await vi.waitFor(() =>
+      expect(requestLog.some((entry) => entry.method === "node.invoke")).toBe(true),
+    );
+    controller.abort(new Error("stop browser run"));
+    await vi.waitFor(() =>
+      expect(requestLog.some((entry) => entry.method === "node.invoke.cancel")).toBe(true),
+    );
+
+    let settled = false;
+    void operation
+      .catch(() => undefined)
+      .finally(() => {
+        settled = true;
+      });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    const invokeRequest = requestLog.find((entry) => entry.method === "node.invoke");
+    const cancelRequest = requestLog.find((entry) => entry.method === "node.invoke.cancel");
+    if (!invokeRequest) {
+      throw new Error("expected node invocation request");
+    }
+    expect(cancelRequest?.params).toEqual({
+      nodeId: "node-1",
+      invocationId: (invokeRequest.params as { invocationId: string }).invocationId,
+    });
+    acknowledgeCancellation?.();
+    await expect(operation).rejects.toThrow("stop browser run");
+  });
+
+  it("does not treat an unverified node cancellation as completed teardown", async () => {
+    setLocalLoopbackGatewayConfig();
+    const controller = new AbortController();
+    let finishInvocation: ((value: Record<string, unknown>) => void) | undefined;
+    requestHandler = async (method) => {
+      if (method === "node.invoke") {
+        return await new Promise<Record<string, unknown>>((resolve) => {
+          finishInvocation = resolve;
+        });
+      }
+      if (method === "node.invoke.cancel") {
+        return { acknowledged: true, completed: false };
+      }
+      return { ok: true };
+    };
+
+    const operation = callGateway({
+      method: "node.invoke",
+      params: { nodeId: "node-1", command: "system.run" },
+      abortSignal: controller.signal,
+      timeoutMs: 5_000,
+    });
+    await vi.waitFor(() =>
+      expect(requestLog.some((entry) => entry.method === "node.invoke")).toBe(true),
+    );
+    controller.abort(new Error("stop remote run"));
+    await vi.waitFor(() =>
+      expect(requestLog.some((entry) => entry.method === "node.invoke.cancel")).toBe(true),
+    );
+
+    let settled = false;
+    void operation.finally(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+
+    finishInvocation?.({ ok: true, completedNormally: true });
+    await expect(operation).resolves.toMatchObject({ completedNormally: true });
   });
 
   it.each([

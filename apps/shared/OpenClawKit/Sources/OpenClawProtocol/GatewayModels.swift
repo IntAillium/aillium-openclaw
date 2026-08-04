@@ -862,19 +862,22 @@ public struct NodeInvokeParams: Codable, Sendable {
     public let params: AnyCodable?
     public let timeoutms: Int?
     public let idempotencykey: String
+    public let invocationid: String?
 
     public init(
         nodeid: String,
         command: String,
         params: AnyCodable?,
         timeoutms: Int?,
-        idempotencykey: String)
+        idempotencykey: String,
+        invocationid: String?)
     {
         self.nodeid = nodeid
         self.command = command
         self.params = params
         self.timeoutms = timeoutms
         self.idempotencykey = idempotencykey
+        self.invocationid = invocationid
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -883,6 +886,51 @@ public struct NodeInvokeParams: Codable, Sendable {
         case params
         case timeoutms = "timeoutMs"
         case idempotencykey = "idempotencyKey"
+        case invocationid = "invocationId"
+    }
+}
+
+public struct NodeInvokeCancelParams: Codable, Sendable {
+    public let nodeid: String
+    public let invocationid: String
+
+    public init(
+        nodeid: String,
+        invocationid: String)
+    {
+        self.nodeid = nodeid
+        self.invocationid = invocationid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case nodeid = "nodeId"
+        case invocationid = "invocationId"
+    }
+}
+
+public struct NodeInvokeCancelResultParams: Codable, Sendable {
+    public let nodeid: String
+    public let invocationid: String
+    public let acknowledged: Bool
+    public let completed: Bool
+
+    public init(
+        nodeid: String,
+        invocationid: String,
+        acknowledged: Bool,
+        completed: Bool)
+    {
+        self.nodeid = nodeid
+        self.invocationid = invocationid
+        self.acknowledged = acknowledged
+        self.completed = completed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case nodeid = "nodeId"
+        case invocationid = "invocationId"
+        case acknowledged
+        case completed
     }
 }
 
@@ -1069,6 +1117,24 @@ public struct NodeInvokeRequestEvent: Codable, Sendable {
         case paramsjson = "paramsJSON"
         case timeoutms = "timeoutMs"
         case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct NodeInvokeCancelEvent: Codable, Sendable {
+    public let nodeid: String
+    public let invocationid: String
+
+    public init(
+        nodeid: String,
+        invocationid: String)
+    {
+        self.nodeid = nodeid
+        self.invocationid = invocationid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case nodeid = "nodeId"
+        case invocationid = "invocationId"
     }
 }
 
@@ -3397,6 +3463,7 @@ public struct ChatSendParams: Codable, Sendable {
     public let systeminputprovenance: [String: AnyCodable]?
     public let systemprovenancereceipt: String?
     public let idempotencykey: String
+    public let governedoperationauthority: [String: AnyCodable]?
 
     public init(
         sessionkey: String,
@@ -3410,7 +3477,8 @@ public struct ChatSendParams: Codable, Sendable {
         timeoutms: Int?,
         systeminputprovenance: [String: AnyCodable]?,
         systemprovenancereceipt: String?,
-        idempotencykey: String)
+        idempotencykey: String,
+        governedoperationauthority: [String: AnyCodable]?)
     {
         self.sessionkey = sessionkey
         self.message = message
@@ -3424,6 +3492,7 @@ public struct ChatSendParams: Codable, Sendable {
         self.systeminputprovenance = systeminputprovenance
         self.systemprovenancereceipt = systemprovenancereceipt
         self.idempotencykey = idempotencykey
+        self.governedoperationauthority = governedoperationauthority
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -3439,24 +3508,51 @@ public struct ChatSendParams: Codable, Sendable {
         case systeminputprovenance = "systemInputProvenance"
         case systemprovenancereceipt = "systemProvenanceReceipt"
         case idempotencykey = "idempotencyKey"
+        case governedoperationauthority = "governedOperationAuthority"
+    }
+}
+
+public struct GovernedOperationResultParams: Codable, Sendable {
+    public let authority: [String: AnyCodable]
+
+    public init(
+        authority: [String: AnyCodable])
+    {
+        self.authority = authority
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case authority
     }
 }
 
 public struct ChatAbortParams: Codable, Sendable {
     public let sessionkey: String
     public let runid: String?
+    public let force: Bool?
+    public let deadlinems: Int?
+    public let forceauthority: [String: AnyCodable]?
 
     public init(
         sessionkey: String,
-        runid: String?)
+        runid: String?,
+        force: Bool?,
+        deadlinems: Int?,
+        forceauthority: [String: AnyCodable]?)
     {
         self.sessionkey = sessionkey
         self.runid = runid
+        self.force = force
+        self.deadlinems = deadlinems
+        self.forceauthority = forceauthority
     }
 
     private enum CodingKeys: String, CodingKey {
         case sessionkey = "sessionKey"
         case runid = "runId"
+        case force
+        case deadlinems = "deadlineMs"
+        case forceauthority = "forceAuthority"
     }
 }
 

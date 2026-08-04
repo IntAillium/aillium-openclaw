@@ -30,7 +30,7 @@ const browserClientMocks = vi.hoisted(() => ({
 vi.mock("../../browser/client.js", () => browserClientMocks);
 
 const browserActionsMocks = vi.hoisted(() => ({
-  browserAct: vi.fn(async () => ({ ok: true })),
+  browserAct: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
   browserArmDialog: vi.fn(async () => ({ ok: true })),
   browserArmFileChooser: vi.fn(async () => ({ ok: true })),
   browserConsoleMessages: vi.fn(async () => ({
@@ -244,6 +244,34 @@ describe("browser tool snapshot maxChars", () => {
     await tool.execute?.("call-1", { action: "profiles" });
 
     expect(browserClientMocks.browserProfiles).toHaveBeenCalledWith(undefined);
+  });
+
+  it("propagates cancellation into an in-flight browser action", async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    browserActionsMocks.browserAct.mockImplementationOnce(async (...args: unknown[]) => {
+      const opts = args[2] as { signal?: AbortSignal } | undefined;
+      receivedSignal = opts?.signal;
+      await new Promise<never>((_, reject) => {
+        opts?.signal?.addEventListener(
+          "abort",
+          () => reject(opts.signal?.reason ?? new Error("aborted")),
+          { once: true },
+        );
+      });
+      return { ok: true };
+    });
+    const tool = createBrowserTool();
+    const execution = tool.execute?.(
+      "call-abort",
+      { action: "act", request: { kind: "wait", timeMs: 30_000 } },
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(receivedSignal).toBe(controller.signal));
+
+    controller.abort(new Error("run cancelled"));
+
+    await expect(execution).rejects.toThrow("run cancelled");
   });
 
   it("passes refs mode through to browser snapshot", async () => {

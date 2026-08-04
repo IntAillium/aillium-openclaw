@@ -678,6 +678,25 @@ async function tryTerminateExecutionViaCdp(opts: {
 }
 
 /**
+ * Cancel work for one browser target without closing the shared Playwright
+ * connection used by other tabs/runs on the same CDP endpoint.
+ */
+export async function cancelPlaywrightTargetOperations(opts: {
+  cdpUrl: string;
+  targetId: string;
+  reason?: string;
+}): Promise<void> {
+  const targetId = opts.targetId.trim();
+  if (!targetId) {
+    return;
+  }
+  await tryTerminateExecutionViaCdp({
+    cdpUrl: normalizeCdpUrl(opts.cdpUrl),
+    targetId,
+  }).catch(() => {});
+}
+
+/**
  * Best-effort cancellation for stuck page operations.
  *
  * Playwright serializes CDP commands per page; a long-running or stuck operation (notably evaluate)
@@ -721,7 +740,7 @@ export async function forceDisconnectPlaywrightForTarget(opts: {
   // disconnect Playwright's CDP connection.
   const targetId = opts.targetId?.trim() || "";
   if (targetId) {
-    await tryTerminateExecutionViaCdp({ cdpUrl: normalized, targetId }).catch(() => {});
+    await cancelPlaywrightTargetOperations({ cdpUrl: normalized, targetId }).catch(() => {});
   }
 
   // Fire-and-forget: don't await because browser.close() may hang on the stuck CDP pipe.

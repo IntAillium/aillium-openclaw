@@ -2,7 +2,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
+import {
+  __testing as embeddedRunsTesting,
+  clearActiveEmbeddedRun,
+  setActiveEmbeddedRun,
+} from "../agents/pi-embedded-runner/runs.js";
 import type { GetReplyOptions } from "../auto-reply/types.js";
+import { getProcessSupervisor } from "../process/supervisor/index.js";
+import { signForceAbortAuthority } from "./aillium-force-abort-authority.js";
 import { __setMaxChatHistoryMessagesBytesForTest } from "./server-constants.js";
 import {
   connectOk,
@@ -430,12 +437,21 @@ describe("gateway server chat", () => {
       expect(inFlight.ok).toBe(true);
       expect(["started", "in_flight", "ok"]).toContain(inFlight.payload?.status ?? "");
 
-      const abortRes = await rpcReq<{ aborted?: boolean }>(ws, "chat.abort", {
+      const abortRes = await rpcReq<{
+        aborted?: boolean;
+        cancellation?: {
+          acknowledged?: boolean;
+          runDrained?: boolean;
+          teardownComplete?: boolean;
+          observedWithinMs?: number;
+        };
+      }>(ws, "chat.abort", {
         sessionKey: "main",
         runId: "idem-abort-1",
       });
       expect(abortRes.ok).toBe(true);
       expect(abortRes.payload?.aborted).toBe(true);
+      expect(abortRes.payload?.cancellation?.observedWithinMs).toBeLessThan(2_000);
       await vi.waitFor(() => {
         expect(aborted).toBe(true);
       }, FAST_WAIT_OPTS);
@@ -459,6 +475,191 @@ describe("gateway server chat", () => {
         expect(again.ok).toBe(true);
         expect(again.payload?.status).toBe("ok");
       }, FAST_WAIT_OPTS);
+    });
+  });
+
+  test("force-aborts an exact embedded run after the chat controller entry is gone", async () => {
+    await withGatewayChatHarness(async ({ ws }) => {
+      vi.stubEnv("AILLIUM_FORCE_ABORT_SIGNING_SECRET", "force-runtime-secret");
+      await connectOk(ws);
+      const abort = vi.fn();
+      const handle = {
+        runId: "force-run-1",
+        processScopeKey: "run:force-run-1",
+        queueMessage: async () => {},
+        isStreaming: () => true,
+        isCompacting: () => false,
+        abort,
+      };
+      abort.mockImplementation(() => clearActiveEmbeddedRun("force-session-id", handle, "main"));
+      setActiveEmbeddedRun("force-session-id", handle, "main");
+      const supervisor = getProcessSupervisor();
+      const managedProcess = await supervisor.spawn({
+        mode: "child",
+        argv: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+        sessionId: "force-session-id",
+        backendId: "force-test-child",
+        runId: "force-process-1",
+        scopeKey: "run:force-run-1",
+        stdinMode: "pipe-closed",
+      });
+      try {
+        const result = await rpcReq<{
+          ok?: boolean;
+          aborted?: boolean;
+          runIds?: string[];
+          sessionKey?: string;
+          runId?: string;
+          runtimeVerified?: boolean;
+          teardownComplete?: boolean;
+          active?: boolean;
+          cancellation?: {
+            processTeardown?: {
+              matchedRunIds?: string[];
+              terminatedRunIds?: string[];
+              remainingRunIds?: string[];
+            };
+          };
+        }>(ws, "chat.abort", {
+          sessionKey: "main",
+          runId: "force-run-1",
+          force: true,
+          deadlineMs: 650,
+          forceAuthority: signForceAbortAuthority({
+            secret: "force-runtime-secret",
+            tenantId: "tenant-1",
+            sessionKey: "main",
+            runId: "force-run-1",
+            fenceToken: "7",
+            cancellationGeneration: 1,
+          }),
+        });
+        expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+        expect(result.payload).toMatchObject({
+          ok: true,
+          aborted: true,
+          runIds: ["force-run-1"],
+          sessionKey: "main",
+          runId: "force-run-1",
+          runtimeVerified: true,
+          teardownComplete: true,
+          active: false,
+        });
+        expect(abort).toHaveBeenCalledTimes(1);
+        expect(result.payload?.cancellation?.processTeardown).toMatchObject({
+          matchedRunIds: ["force-process-1"],
+          terminatedRunIds: ["force-process-1"],
+          remainingRunIds: [],
+        });
+        await expect(managedProcess.wait()).resolves.toMatchObject({ reason: "manual-cancel" });
+      } finally {
+        await supervisor.cancelScopeAndWait("run:force-run-1", { deadlineMs: 1_000 });
+        embeddedRunsTesting.resetActiveEmbeddedRuns();
+        vi.unstubAllEnvs();
+      }
+    });
+  });
+
+  test("force abort does not touch an embedded run under a different session key", async () => {
+    await withGatewayChatHarness(async ({ ws }) => {
+      vi.stubEnv("AILLIUM_FORCE_ABORT_SIGNING_SECRET", "force-runtime-secret");
+      await connectOk(ws);
+      const abort = vi.fn();
+      const handle = {
+        runId: "force-run-mismatch",
+        processScopeKey: "run:force-run-mismatch",
+        queueMessage: async () => {},
+        isStreaming: () => true,
+        isCompacting: () => false,
+        abort,
+      };
+      setActiveEmbeddedRun("force-session-id", handle, "tenant:other");
+      try {
+        const result = await rpcReq<{ runtimeVerified?: boolean }>(ws, "chat.abort", {
+          sessionKey: "main",
+          runId: "force-run-mismatch",
+          force: true,
+          deadlineMs: 650,
+          forceAuthority: signForceAbortAuthority({
+            secret: "force-runtime-secret",
+            tenantId: "tenant-1",
+            sessionKey: "main",
+            runId: "force-run-mismatch",
+            fenceToken: "8",
+            cancellationGeneration: 2,
+          }),
+        });
+        expect(result.ok).toBe(true);
+        expect(result.payload?.runtimeVerified).toBe(false);
+        expect(abort).not.toHaveBeenCalled();
+      } finally {
+        embeddedRunsTesting.resetActiveEmbeddedRuns();
+        vi.unstubAllEnvs();
+      }
+    });
+  });
+
+  test("rejects force abort without an exact run id", async () => {
+    await withGatewayChatHarness(async ({ ws }) => {
+      await connectOk(ws);
+      const result = await rpcReq(ws, "chat.abort", {
+        sessionKey: "main",
+        force: true,
+      });
+      expect(result.ok).toBe(false);
+    });
+  });
+
+  test("does not accept a force authority minted with the generic gateway runtime token", async () => {
+    await withGatewayChatHarness(async ({ ws }) => {
+      vi.stubEnv("AILLIUM_RUNTIME_TOKEN", "generic-runtime-secret");
+      vi.stubEnv("AILLIUM_FORCE_ABORT_SIGNING_SECRET", "dedicated-force-secret");
+      await connectOk(ws);
+      try {
+        const result = await rpcReq(ws, "chat.abort", {
+          sessionKey: "main",
+          runId: "force-run-generic-secret",
+          force: true,
+          deadlineMs: 650,
+          forceAuthority: signForceAbortAuthority({
+            secret: "generic-runtime-secret",
+            tenantId: "tenant-1",
+            sessionKey: "main",
+            runId: "force-run-generic-secret",
+            fenceToken: "9",
+            cancellationGeneration: 3,
+          }),
+        });
+        expect(result.ok).toBe(false);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  });
+
+  test("rejects a valid Core force authority bound to a different session", async () => {
+    await withGatewayChatHarness(async ({ ws }) => {
+      vi.stubEnv("AILLIUM_FORCE_ABORT_SIGNING_SECRET", "dedicated-force-secret");
+      await connectOk(ws);
+      try {
+        const result = await rpcReq(ws, "chat.abort", {
+          sessionKey: "main",
+          runId: "force-run-wrong-session",
+          force: true,
+          deadlineMs: 650,
+          forceAuthority: signForceAbortAuthority({
+            secret: "dedicated-force-secret",
+            tenantId: "tenant-1",
+            sessionKey: "other-session",
+            runId: "force-run-wrong-session",
+            fenceToken: "10",
+            cancellationGeneration: 4,
+          }),
+        });
+        expect(result.ok).toBe(false);
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
   });
 });

@@ -106,4 +106,61 @@ describe("process supervisor", () => {
     expect(streamed).toBe("streamed");
     expect(exit.stdout).toBe("");
   });
+
+  it("forces an ignored cooperative abort across the tracked process tree", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const supervisor = createProcessSupervisor();
+    let stdout = "";
+    let resolveDescendantPid: ((pid: number) => void) | undefined;
+    const descendantPidPromise = new Promise<number>((resolve) => {
+      resolveDescendantPid = resolve;
+    });
+    const descendantScript = "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)";
+    const parentScript = [
+      "const {spawn}=require('node:child_process')",
+      `const child=spawn(process.execPath,['-e',${JSON.stringify(descendantScript)}],{stdio:'ignore'})`,
+      "process.stdout.write(String(child.pid)+'\\n')",
+      "setInterval(()=>{},1000)",
+    ].join(";");
+    await spawnChild(supervisor, {
+      sessionId: "s-forced-tree",
+      scopeKey: "run:forced-tree",
+      argv: [process.execPath, "-e", parentScript],
+      stdinMode: "pipe-closed",
+      captureOutput: false,
+      onStdout: (chunk) => {
+        stdout += chunk;
+        const parsed = Number.parseInt(stdout.trim(), 10);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          resolveDescendantPid?.(parsed);
+          resolveDescendantPid = undefined;
+        }
+      },
+    });
+
+    const descendantPid = await descendantPidPromise;
+    const cancellation = await supervisor.cancelScopeAndWait("run:forced-tree", {
+      deadlineMs: 4_500,
+    });
+    expect(cancellation.requested).toBe(true);
+    expect(cancellation.teardownComplete).toBe(true);
+    expect(cancellation.remainingRunIds).toEqual([]);
+    expect(cancellation.elapsedMs).toBeLessThan(5_000);
+
+    await expect
+      .poll(
+        () => {
+          try {
+            process.kill(descendantPid, 0);
+            return false;
+          } catch {
+            return true;
+          }
+        },
+        { timeout: 1_000, interval: 20 },
+      )
+      .toBe(true);
+  }, 10_000);
 });

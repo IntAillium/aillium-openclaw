@@ -25,6 +25,7 @@ import type {
   PluginHookBeforeAgentStartResult,
   PluginHookBeforePromptBuildResult,
 } from "../../../plugins/types.js";
+import { getProcessSupervisor } from "../../../process/supervisor/index.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../../../routing/session-key.js";
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
@@ -2254,6 +2255,8 @@ export async function runEmbeddedAttempt(
       } = subscription;
 
       const queueHandle: EmbeddedPiQueueHandle = {
+        runId: params.runId,
+        processScopeKey: `run:${params.runId}`,
         queueMessage: async (text: string) => {
           await activeSession.steer(text);
         },
@@ -2775,6 +2778,15 @@ export async function runEmbeddedAttempt(
           // as it would mask any exception from the try block above.
           log.error(
             `CRITICAL: unsubscribe failed, possible resource leak: runId=${params.runId} ${String(err)}`,
+          );
+        }
+        const processTeardown = await getProcessSupervisor().cancelScopeAndWait(
+          queueHandle.processScopeKey ?? `run:${params.runId}`,
+          { deadlineMs: 5_000 },
+        );
+        if (!processTeardown.teardownComplete) {
+          log.error(
+            `run process teardown incomplete: runId=${params.runId} remaining=${processTeardown.remainingRunIds.join(",")}`,
           );
         }
         clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);

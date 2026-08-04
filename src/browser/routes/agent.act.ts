@@ -12,6 +12,7 @@ import {
 import type { BrowserActRequest, BrowserFormField } from "../client-actions-core.js";
 import { normalizeBrowserFormField } from "../form-fields.js";
 import { getBrowserProfileCapabilities } from "../profile-capabilities.js";
+import { cancelPlaywrightTargetOperations } from "../pw-session.js";
 import type { BrowserRouteContext } from "../server-context.js";
 import { matchBrowserUrlPattern } from "../url-pattern.js";
 import { registerBrowserAgentActDownloadRoutes } from "./agent.act.download.js";
@@ -34,6 +35,26 @@ import { jsonError, toBoolean, toNumber, toStringArray, toStringOrEmpty } from "
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    await sleep(ms);
+    return;
+  }
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  const abortPromise = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason ?? new Error("Browser action aborted"));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    await Promise.race([sleep(ms), abortPromise]);
+  } finally {
+    if (onAbort) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
 }
 
 function browserEvaluateDisabledMessage(action: "wait" | "evaluate"): string {
@@ -87,9 +108,11 @@ async function waitForExistingSessionCondition(params: {
   loadState?: "load" | "domcontentloaded" | "networkidle";
   fn?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }): Promise<void> {
+  params.signal?.throwIfAborted();
   if (params.timeMs && params.timeMs > 0) {
-    await sleep(params.timeMs);
+    await sleepWithAbort(params.timeMs, params.signal);
   }
   const predicate = buildExistingSessionWaitPredicate(params);
   if (!predicate && !params.url) {
@@ -98,6 +121,7 @@ async function waitForExistingSessionCondition(params: {
   const timeoutMs = Math.max(250, params.timeoutMs ?? 10_000);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    params.signal?.throwIfAborted();
     let ready = true;
     if (predicate) {
       ready = Boolean(
@@ -105,6 +129,7 @@ async function waitForExistingSessionCondition(params: {
           profileName: params.profileName,
           targetId: params.targetId,
           fn: `async () => ${predicate}`,
+          ...(params.signal ? { signal: params.signal } : {}),
         }),
       );
     }
@@ -113,13 +138,14 @@ async function waitForExistingSessionCondition(params: {
         profileName: params.profileName,
         targetId: params.targetId,
         fn: "() => window.location.href",
+        ...(params.signal ? { signal: params.signal } : {}),
       });
       ready = typeof currentUrl === "string" && matchBrowserUrlPattern(params.url, currentUrl);
     }
     if (ready) {
       return;
     }
-    await sleep(250);
+    await sleepWithAbort(250, params.signal);
   }
   throw new Error("Timed out waiting for condition");
 }
@@ -481,6 +507,22 @@ export function registerBrowserAgentActRoutes(
         const isExistingSession = getBrowserProfileCapabilities(profileCtx.profile).usesChromeMcp;
         const profileName = profileCtx.profile.name;
 
+        req.signal?.throwIfAborted();
+        if (req.signal && !isExistingSession) {
+          const onAbort = () => {
+            void cancelPlaywrightTargetOperations({
+              cdpUrl,
+              targetId: tab.targetId,
+              reason: "run cancellation",
+            }).catch(() => {});
+          };
+          req.signal.addEventListener("abort", onAbort, { once: true });
+          if (req.signal.aborted) {
+            onAbort();
+            req.signal.throwIfAborted();
+          }
+        }
+
         switch (kind) {
           case "click": {
             const ref = toStringOrEmpty(body.ref) || undefined;
@@ -523,6 +565,7 @@ export function registerBrowserAgentActRoutes(
                 targetId: tab.targetId,
                 uid: ref!,
                 doubleClick,
+                ...(req.signal ? { signal: req.signal } : {}),
               });
               return res.json({ ok: true, targetId: tab.targetId, url: tab.url });
             }
@@ -589,12 +632,14 @@ export function registerBrowserAgentActRoutes(
                 targetId: tab.targetId,
                 uid: ref!,
                 value: text,
+                ...(req.signal ? { signal: req.signal } : {}),
               });
               if (submit) {
                 await pressChromeMcpKey({
                   profileName,
                   targetId: tab.targetId,
                   key: "Enter",
+                  ...(req.signal ? { signal: req.signal } : {}),
                 });
               }
               return res.json({ ok: true, targetId: tab.targetId });
@@ -632,7 +677,12 @@ export function registerBrowserAgentActRoutes(
               if (delayMs) {
                 return jsonError(res, 501, "existing-session press does not support delayMs.");
               }
-              await pressChromeMcpKey({ profileName, targetId: tab.targetId, key });
+              await pressChromeMcpKey({
+                profileName,
+                targetId: tab.targetId,
+                key,
+                ...(req.signal ? { signal: req.signal } : {}),
+              });
               return res.json({ ok: true, targetId: tab.targetId });
             }
             const pw = await requirePwAi(res, `act:${kind}`);
@@ -669,7 +719,12 @@ export function registerBrowserAgentActRoutes(
                   "existing-session hover does not support timeoutMs overrides.",
                 );
               }
-              await hoverChromeMcpElement({ profileName, targetId: tab.targetId, uid: ref! });
+              await hoverChromeMcpElement({
+                profileName,
+                targetId: tab.targetId,
+                uid: ref!,
+                ...(req.signal ? { signal: req.signal } : {}),
+              });
               return res.json({ ok: true, targetId: tab.targetId });
             }
             const pw = await requirePwAi(res, `act:${kind}`);
@@ -712,6 +767,7 @@ export function registerBrowserAgentActRoutes(
                 targetId: tab.targetId,
                 fn: `(el) => { el.scrollIntoView({ block: "center", inline: "center" }); return true; }`,
                 args: [ref!],
+                ...(req.signal ? { signal: req.signal } : {}),
               });
               return res.json({ ok: true, targetId: tab.targetId });
             }
@@ -767,6 +823,7 @@ export function registerBrowserAgentActRoutes(
                 targetId: tab.targetId,
                 fromUid: startRef!,
                 toUid: endRef!,
+                ...(req.signal ? { signal: req.signal } : {}),
               });
               return res.json({ ok: true, targetId: tab.targetId });
             }
@@ -820,6 +877,7 @@ export function registerBrowserAgentActRoutes(
                 targetId: tab.targetId,
                 uid: ref!,
                 value: values[0] ?? "",
+                ...(req.signal ? { signal: req.signal } : {}),
               });
               return res.json({ ok: true, targetId: tab.targetId });
             }
@@ -866,6 +924,7 @@ export function registerBrowserAgentActRoutes(
                   uid: field.ref,
                   value: String(field.value ?? ""),
                 })),
+                ...(req.signal ? { signal: req.signal } : {}),
               });
               return res.json({ ok: true, targetId: tab.targetId });
             }
@@ -893,6 +952,7 @@ export function registerBrowserAgentActRoutes(
                 targetId: tab.targetId,
                 width,
                 height,
+                ...(req.signal ? { signal: req.signal } : {}),
               });
               return res.json({ ok: true, targetId: tab.targetId, url: tab.url });
             }
@@ -960,6 +1020,7 @@ export function registerBrowserAgentActRoutes(
                 loadState,
                 fn,
                 timeoutMs,
+                signal: req.signal,
               });
               return res.json({ ok: true, targetId: tab.targetId });
             }
@@ -1004,6 +1065,7 @@ export function registerBrowserAgentActRoutes(
                 targetId: tab.targetId,
                 fn,
                 args: ref ? [ref] : undefined,
+                ...(req.signal ? { signal: req.signal } : {}),
               });
               return res.json({
                 ok: true,
@@ -1036,7 +1098,11 @@ export function registerBrowserAgentActRoutes(
           }
           case "close": {
             if (isExistingSession) {
-              await closeChromeMcpTab(profileName, tab.targetId);
+              await closeChromeMcpTab(
+                profileName,
+                tab.targetId,
+                req.signal ? { signal: req.signal } : undefined,
+              );
               return res.json({ ok: true, targetId: tab.targetId });
             }
             const pw = await requirePwAi(res, `act:${kind}`);
@@ -1153,6 +1219,7 @@ export function registerBrowserAgentActRoutes(
             profileName: profileCtx.profile.name,
             targetId: tab.targetId,
             args: [ref],
+            ...(req.signal ? { signal: req.signal } : {}),
             fn: `(el) => {
               if (!(el instanceof Element)) {
                 return false;

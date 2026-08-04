@@ -13,6 +13,7 @@ type BrowserProxyRequest = (opts: {
   body?: unknown;
   timeoutMs?: number;
   profile?: string;
+  signal?: AbortSignal;
 }) => Promise<unknown>;
 
 function wrapBrowserExternalJson(params: {
@@ -108,18 +109,21 @@ export async function executeTabsAction(params: {
   baseUrl?: string;
   profile?: string;
   proxyRequest: BrowserProxyRequest | null;
+  signal?: AbortSignal;
 }): Promise<AgentToolResult<unknown>> {
-  const { baseUrl, profile, proxyRequest } = params;
+  const { baseUrl, profile, proxyRequest, signal } = params;
+  const signalOptions = signal ? { signal } : {};
   if (proxyRequest) {
     const result = await proxyRequest({
       method: "GET",
       path: "/tabs",
       profile,
+      ...signalOptions,
     });
     const tabs = (result as { tabs?: unknown[] }).tabs ?? [];
     return formatTabsToolResult(tabs);
   }
-  const tabs = await browserTabs(baseUrl, { profile });
+  const tabs = await browserTabs(baseUrl, { profile, ...signalOptions });
   return formatTabsToolResult(tabs);
 }
 
@@ -128,8 +132,10 @@ export async function executeSnapshotAction(params: {
   baseUrl?: string;
   profile?: string;
   proxyRequest: BrowserProxyRequest | null;
+  signal?: AbortSignal;
 }): Promise<AgentToolResult<unknown>> {
-  const { input, baseUrl, profile, proxyRequest } = params;
+  const { input, baseUrl, profile, proxyRequest, signal } = params;
+  const signalOptions = signal ? { signal } : {};
   const snapshotDefaults = loadConfig().browser?.snapshotDefaults;
   const format: "ai" | "aria" | undefined =
     input.snapshotFormat === "ai" || input.snapshotFormat === "aria"
@@ -188,10 +194,12 @@ export async function executeSnapshotAction(params: {
         path: "/snapshot",
         profile,
         query: snapshotQuery,
+        ...signalOptions,
       })) as Awaited<ReturnType<typeof browserSnapshot>>)
     : await browserSnapshot(baseUrl, {
         ...snapshotQuery,
         profile,
+        ...signalOptions,
       });
   if (snapshot.format === "ai") {
     const extractedText = snapshot.snapshot ?? "";
@@ -263,8 +271,10 @@ export async function executeConsoleAction(params: {
   baseUrl?: string;
   profile?: string;
   proxyRequest: BrowserProxyRequest | null;
+  signal?: AbortSignal;
 }): Promise<AgentToolResult<unknown>> {
-  const { input, baseUrl, profile, proxyRequest } = params;
+  const { input, baseUrl, profile, proxyRequest, signal } = params;
+  const signalOptions = signal ? { signal } : {};
   const level = typeof input.level === "string" ? input.level.trim() : undefined;
   const targetId = typeof input.targetId === "string" ? input.targetId.trim() : undefined;
   if (proxyRequest) {
@@ -276,10 +286,16 @@ export async function executeConsoleAction(params: {
         level,
         targetId,
       },
+      ...signalOptions,
     })) as { ok?: boolean; targetId?: string; messages?: unknown[] };
     return formatConsoleToolResult(result);
   }
-  const result = await browserConsoleMessages(baseUrl, { level, targetId, profile });
+  const result = await browserConsoleMessages(baseUrl, {
+    level,
+    targetId,
+    profile,
+    ...signalOptions,
+  });
   return formatConsoleToolResult(result);
 }
 
@@ -288,8 +304,10 @@ export async function executeActAction(params: {
   baseUrl?: string;
   profile?: string;
   proxyRequest: BrowserProxyRequest | null;
+  signal?: AbortSignal;
 }): Promise<AgentToolResult<unknown>> {
-  const { request, baseUrl, profile, proxyRequest } = params;
+  const { request, baseUrl, profile, proxyRequest, signal } = params;
+  const signalOptions = signal ? { signal } : {};
   try {
     const result = proxyRequest
       ? await proxyRequest({
@@ -297,12 +315,17 @@ export async function executeActAction(params: {
           path: "/act",
           profile,
           body: request,
+          ...signalOptions,
         })
       : await browserAct(baseUrl, request, {
           profile,
+          ...signalOptions,
         });
     return jsonResult(result);
   } catch (err) {
+    if (signal?.aborted) {
+      throw signal.reason ?? err;
+    }
     if (isChromeStaleTargetError(profile, err)) {
       const retryRequest = stripTargetIdFromActRequest(request);
       const tabs = proxyRequest
@@ -311,9 +334,10 @@ export async function executeActAction(params: {
               method: "GET",
               path: "/tabs",
               profile,
+              ...signalOptions,
             })) as { tabs?: unknown[] }
           ).tabs ?? [])
-        : await browserTabs(baseUrl, { profile }).catch(() => []);
+        : await browserTabs(baseUrl, { profile, ...signalOptions }).catch(() => []);
       // Some user-browser targetIds can go stale between snapshots and actions.
       // Only retry safe read-only actions, and only when exactly one tab remains attached.
       if (retryRequest && canRetryChromeActWithoutTargetId(request) && tabs.length === 1) {
@@ -324,12 +348,17 @@ export async function executeActAction(params: {
                 path: "/act",
                 profile,
                 body: retryRequest,
+                ...signalOptions,
               })
             : await browserAct(baseUrl, retryRequest, {
                 profile,
+                ...signalOptions,
               });
           return jsonResult(retryResult);
-        } catch {
+        } catch (retryError) {
+          if (signal?.aborted) {
+            throw signal.reason ?? retryError;
+          }
           // Fall through to explicit stale-target guidance.
         }
       }

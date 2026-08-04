@@ -14,10 +14,6 @@ function resolveCommand(command: string): string {
 
 export type ChildAdapter = SpawnProcessAdapter<NodeJS.Signals | null>;
 
-function isServiceManagedRuntime(): boolean {
-  return Boolean(process.env.OPENCLAW_SERVICE_MARKER?.trim());
-}
-
 export async function createChildAdapter(params: {
   argv: string[];
   cwd?: string;
@@ -31,10 +27,11 @@ export async function createChildAdapter(params: {
 
   const stdinMode = params.stdinMode ?? (params.input !== undefined ? "pipe-closed" : "inherit");
 
-  // In service-managed mode keep children attached so systemd/launchd can
-  // stop the full process tree reliably. Outside service mode preserve the
-  // existing POSIX detached behavior.
-  const useDetached = process.platform !== "win32" && !isServiceManagedRuntime();
+  // Every POSIX run owns a process group, including service-managed runs.
+  // systemd/launchd still retain cgroup/job ownership of detached children,
+  // while the distinct group lets per-run cancellation kill descendants
+  // without signalling the OpenClaw service group.
+  const useDetached = process.platform !== "win32";
 
   const options: SpawnOptions = {
     cwd: params.cwd,
@@ -53,14 +50,8 @@ export async function createChildAdapter(params: {
   const spawned = await spawnWithFallback({
     argv: resolvedArgv,
     options,
-    fallbacks: useDetached
-      ? [
-          {
-            label: "no-detach",
-            options: { detached: false },
-          },
-        ]
-      : [],
+    // A no-detach fallback would make per-run tree cancellation unsafe.
+    fallbacks: [],
   });
 
   const child = spawned.child as ChildProcessWithoutNullStreams;
@@ -122,22 +113,14 @@ export async function createChildAdapter(params: {
 
   const kill = (signal?: NodeJS.Signals) => {
     const pid = child.pid ?? undefined;
-    if (signal === undefined || signal === "SIGKILL") {
-      if (pid) {
-        killProcessTree(pid);
-      } else {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // ignore kill errors
-        }
-      }
+    if (pid) {
+      killProcessTree(pid, { graceMs: signal === "SIGKILL" ? 0 : undefined });
       return;
     }
     try {
-      child.kill(signal);
+      child.kill(signal ?? "SIGKILL");
     } catch {
-      // ignore kill errors for non-kill signals
+      // ignore kill errors
     }
   };
 

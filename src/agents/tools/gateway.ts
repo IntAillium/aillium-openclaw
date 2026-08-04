@@ -11,6 +11,7 @@ export type GatewayCallOptions = {
   gatewayUrl?: string;
   gatewayToken?: string;
   timeoutMs?: number;
+  abortSignal?: AbortSignal;
 };
 
 type GatewayOverrideTarget = "local" | "remote";
@@ -151,6 +152,7 @@ export async function callGatewayTool<T = Record<string, unknown>>(
     method,
     params,
     timeoutMs: gateway.timeoutMs,
+    abortSignal: opts.abortSignal,
     expectFinal: extra?.expectFinal,
     clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
     clientDisplayName: "agent",

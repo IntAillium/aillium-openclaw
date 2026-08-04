@@ -348,6 +348,8 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
     sendExecFinishedEvent?: HandleSystemRunInvokeOptions["sendExecFinishedEvent"];
     sendNodeEvent?: HandleSystemRunInvokeOptions["sendNodeEvent"];
     skillBinsCurrent?: () => Promise<Array<{ name: string; resolvedPath: string }>>;
+    abortSignal?: AbortSignal;
+    execHostFallbackAllowed?: boolean;
   }): Promise<{
     runCommand: MockedRunCommand;
     runViaMacAppExecHost: MockedRunViaMacAppExecHost;
@@ -401,7 +403,7 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
         current: params.skillBinsCurrent ?? (async () => []),
       },
       execHostEnforced: false,
-      execHostFallbackAllowed: true,
+      execHostFallbackAllowed: params.execHostFallbackAllowed ?? true,
       resolveExecSecurity: () => params.security ?? "full",
       resolveExecAsk: () => params.ask ?? "off",
       isCmdExeInvocation: () => false,
@@ -413,6 +415,7 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
       sendInvokeResult,
       sendExecFinishedEvent,
       preferMacAppExecHost: params.preferMacAppExecHost,
+      abortSignal: params.abortSignal,
     });
 
     return {
@@ -453,6 +456,43 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
     });
     expect(runCommand).not.toHaveBeenCalled();
     expectInvokeOk(sendInvokeResult, { payloadContains: "app-ok" });
+  });
+
+  it("routes cancellable macOS invocations through the local tree-owned runner", async () => {
+    const controller = new AbortController();
+    const { runCommand, runViaMacAppExecHost } = await runSystemInvoke({
+      preferMacAppExecHost: true,
+      abortSignal: controller.signal,
+    });
+
+    expect(runViaMacAppExecHost).not.toHaveBeenCalled();
+    expect(runCommand).toHaveBeenCalledWith(
+      expect.any(Array),
+      undefined,
+      undefined,
+      undefined,
+      controller.signal,
+    );
+  });
+
+  it("fails closed before launching a cancellable companion-only invocation", async () => {
+    const controller = new AbortController();
+    const { runCommand, runViaMacAppExecHost, sendInvokeResult } = await runSystemInvoke({
+      preferMacAppExecHost: true,
+      abortSignal: controller.signal,
+      execHostFallbackAllowed: false,
+    });
+
+    expect(runViaMacAppExecHost).not.toHaveBeenCalled();
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(sendInvokeResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({
+          message: expect.stringContaining("COMPANION_CANCEL_UNAVAILABLE"),
+        }),
+      }),
+    );
   });
 
   it("forwards canonical command text to mac app exec host for positional-argv shell wrappers", async () => {

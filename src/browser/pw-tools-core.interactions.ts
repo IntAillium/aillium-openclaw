@@ -2,8 +2,8 @@ import type { BrowserActRequest, BrowserFormField } from "./client-actions-core.
 import { DEFAULT_FILL_FIELD_TYPE } from "./form-fields.js";
 import { DEFAULT_UPLOAD_DIR, resolveStrictExistingPathsWithinRoot } from "./paths.js";
 import {
+  cancelPlaywrightTargetOperations,
   ensurePageState,
-  forceDisconnectPlaywrightForTarget,
   getPageForTargetId,
   refLocator,
   restoreRoleRefsForTarget,
@@ -325,7 +325,11 @@ export async function evaluateViaPlaywright(opts: {
   }
   if (signal) {
     const disconnect = () => {
-      void forceDisconnectPlaywrightForTarget({
+      if (!opts.targetId?.trim()) {
+        abortReject?.(signal.reason ?? new Error("aborted"));
+        return;
+      }
+      void cancelPlaywrightTargetOperations({
         cdpUrl: opts.cdpUrl,
         targetId: opts.targetId,
         reason: "evaluate aborted",

@@ -21,6 +21,7 @@ export const CLI_DEFAULT_OPERATOR_SCOPES: OperatorScope[] = [
 
 const NODE_ROLE_METHODS = new Set([
   "node.invoke.result",
+  "node.invoke.cancel.result",
   "node.event",
   "node.pending.drain",
   "node.canvas.capability.refresh",
@@ -100,6 +101,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "tts.setProvider",
     "voicewake.set",
     "node.invoke",
+    "node.invoke.cancel",
     "chat.send",
     "chat.abort",
     "browser.request",
@@ -107,6 +109,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "node.pending.enqueue",
   ],
   [ADMIN_SCOPE]: [
+    "aillium.operation.result",
     "channels.logout",
     "agents.create",
     "agents.update",

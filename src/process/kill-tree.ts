@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const DEFAULT_GRACE_MS = 3000;
 const MAX_GRACE_MS = 60_000;
@@ -34,13 +34,48 @@ function normalizeGraceMs(value?: number): number {
   return Math.max(0, Math.min(MAX_GRACE_MS, Math.floor(value)));
 }
 
-function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Verify that neither the owned process group nor its leader is observable by
+ * the OS. This is stronger than an in-memory supervisor transition and is used
+ * before reporting teardown as complete.
+ */
+export function isProcessTreeAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) {
+    return false;
+  }
+  if (process.platform === "win32") {
+    return isProcessAlive(pid);
+  }
+  try {
+    const result = spawnSync("ps", ["-axo", "pid=,pgid=,stat="], {
+      encoding: "utf8",
+      timeout: 1_000,
+    });
+    if (result.status === 0 && typeof result.stdout === "string") {
+      return result.stdout.split("\n").some((line) => {
+        const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)/);
+        if (!match) {
+          return false;
+        }
+        const processId = Number(match[1]);
+        const processGroupId = Number(match[2]);
+        const state = match[3] ?? "";
+        return (processId === pid || processGroupId === pid) && !state.startsWith("Z");
+      });
+    }
+  } catch {
+    // Fall through to the portable signal-zero check.
+  }
+  return isProcessAlive(-pid) || isProcessAlive(pid);
 }
 
 function killProcessTreeUnix(pid: number, graceMs: number): void {
@@ -94,12 +129,9 @@ function killProcessTreeWindows(pid: number, graceMs: number): void {
   // Step 1: Try graceful termination (taskkill without /F)
   runTaskkill(["/T", "/PID", String(pid)]);
 
-  // Step 2: Wait grace period, then force kill only if pid still exists.
-  // This avoids unconditional delayed /F kills after graceful shutdown.
+  // Step 2: Always issue the forced tree pass. The leader can exit while a
+  // descendant remains, so leader liveness is not proof of tree teardown.
   setTimeout(() => {
-    if (!isProcessAlive(pid)) {
-      return;
-    }
     runTaskkill(["/F", "/T", "/PID", String(pid)]);
   }, graceMs).unref(); // Don't block event loop exit
 }

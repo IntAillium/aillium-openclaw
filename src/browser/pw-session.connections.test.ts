@@ -1,7 +1,11 @@
 import { chromium } from "playwright-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as chromeModule from "./chrome.js";
-import { closePlaywrightBrowserConnection, listPagesViaPlaywright } from "./pw-session.js";
+import {
+  cancelPlaywrightTargetOperations,
+  closePlaywrightBrowserConnection,
+  listPagesViaPlaywright,
+} from "./pw-session.js";
 
 const connectOverCdpSpy = vi.spyOn(chromium, "connectOverCDP");
 const getChromeWebSocketUrlSpy = vi.spyOn(chromeModule, "getChromeWebSocketUrl");
@@ -115,5 +119,32 @@ describe("pw-session connection scoping", () => {
 
     expect(browserA.browserClose).toHaveBeenCalledTimes(1);
     expect(browserB.browserClose).not.toHaveBeenCalled();
+  });
+
+  it("target cancellation preserves the shared CDP connection", async () => {
+    const browser = makeBrowser("A", "https://a.example");
+    connectOverCdpSpy.mockResolvedValue(browser.browser);
+    getChromeWebSocketUrlSpy.mockResolvedValue(null);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    try {
+      await listPagesViaPlaywright({ cdpUrl: "http://127.0.0.1:9222" });
+      await cancelPlaywrightTargetOperations({
+        cdpUrl: "http://127.0.0.1:9222",
+        targetId: "A",
+        reason: "run-a cancelled",
+      });
+      await listPagesViaPlaywright({ cdpUrl: "http://127.0.0.1:9222" });
+
+      expect(connectOverCdpSpy).toHaveBeenCalledTimes(1);
+      expect(browser.browserClose).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

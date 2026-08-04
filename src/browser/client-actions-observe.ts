@@ -24,7 +24,7 @@ function buildQuerySuffix(params: Array<[string, string | boolean | undefined]>)
 
 export async function browserConsoleMessages(
   baseUrl: string | undefined,
-  opts: { level?: string; targetId?: string; profile?: string } = {},
+  opts: { level?: string; targetId?: string; profile?: string; signal?: AbortSignal } = {},
 ): Promise<{ ok: true; messages: BrowserConsoleMessage[]; targetId: string }> {
   const suffix = buildQuerySuffix([
     ["level", opts.level],
@@ -35,12 +35,12 @@ export async function browserConsoleMessages(
     ok: true;
     messages: BrowserConsoleMessage[];
     targetId: string;
-  }>(withBaseUrl(baseUrl, `/console${suffix}`), { timeoutMs: 20000 });
+  }>(withBaseUrl(baseUrl, `/console${suffix}`), { timeoutMs: 20000, signal: opts.signal });
 }
 
 export async function browserPdfSave(
   baseUrl: string | undefined,
-  opts: { targetId?: string; profile?: string } = {},
+  opts: { targetId?: string; profile?: string; signal?: AbortSignal } = {},
 ): Promise<BrowserActionPathResult> {
   const q = buildProfileQuery(opts.profile);
   return await fetchBrowserJson<BrowserActionPathResult>(withBaseUrl(baseUrl, `/pdf${q}`), {
@@ -48,6 +48,7 @@ export async function browserPdfSave(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetId: opts.targetId }),
     timeoutMs: 20000,
+    signal: opts.signal,
   });
 }
 

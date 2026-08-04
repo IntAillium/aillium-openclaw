@@ -17,7 +17,7 @@ const refLocator = vi.fn(() => {
   }
   return locator;
 });
-const forceDisconnectPlaywrightForTarget = vi.fn(async () => {});
+const cancelPlaywrightTargetOperations = vi.fn(async () => {});
 
 const resolveStrictExistingPathsWithinRoot =
   vi.fn<typeof import("./paths.js").resolveStrictExistingPathsWithinRoot>();
@@ -25,7 +25,7 @@ const resolveStrictExistingPathsWithinRoot =
 vi.mock("./pw-session.js", () => {
   return {
     ensurePageState,
-    forceDisconnectPlaywrightForTarget,
+    cancelPlaywrightTargetOperations,
     getPageForTargetId,
     refLocator,
     restoreRoleRefsForTarget,

@@ -142,7 +142,9 @@ export type HandleSystemRunInvokeOptions = {
     cwd: string | undefined,
     env: Record<string, string> | undefined,
     timeoutMs: number | undefined,
+    abortSignal?: AbortSignal,
   ) => Promise<RunResult>;
+  abortSignal?: AbortSignal;
   runViaMacAppExecHost: (params: {
     approvals: ReturnType<typeof resolveExecApprovals>;
     request: ExecHostRequest;
@@ -447,7 +449,18 @@ async function executeSystemRunPhase(
     return;
   }
 
-  const useMacAppExec = opts.preferMacAppExecHost;
+  // The companion exec socket does not expose a verified process-tree cancel
+  // protocol. Never start work there when this invocation is cancellable. Use
+  // the already-authorized local runner only when fallback was explicitly
+  // allowed; otherwise fail closed before any command is launched.
+  if (opts.preferMacAppExecHost && opts.abortSignal && !opts.execHostFallbackAllowed) {
+    await sendSystemRunDenied(opts, phase.execution, {
+      reason: "companion-unavailable",
+      message: "COMPANION_CANCEL_UNAVAILABLE: macOS app exec host cannot verify forced teardown",
+    });
+    return;
+  }
+  const useMacAppExec = opts.preferMacAppExecHost && !opts.abortSignal;
   if (useMacAppExec) {
     const execRequest: ExecHostRequest = {
       command: phase.plannedAllowlistArgv ?? phase.argv,
@@ -538,7 +551,9 @@ async function executeSystemRunPhase(
     segments: phase.segments,
   });
 
-  const result = await opts.runCommand(execArgv, phase.cwd, phase.env, phase.timeoutMs);
+  const result = opts.abortSignal
+    ? await opts.runCommand(execArgv, phase.cwd, phase.env, phase.timeoutMs, opts.abortSignal)
+    : await opts.runCommand(execArgv, phase.cwd, phase.env, phase.timeoutMs);
   applyOutputTruncation(result);
   await sendSystemRunCompleted(
     opts,
@@ -556,12 +571,33 @@ async function executeSystemRunPhase(
 }
 
 export async function handleSystemRunInvoke(opts: HandleSystemRunInvokeOptions): Promise<void> {
+  if (opts.abortSignal?.aborted) {
+    await opts.sendInvokeResult({
+      ok: false,
+      error: { code: "CANCELLED", message: "node invocation cancelled" },
+    });
+    return;
+  }
   const parsed = await parseSystemRunPhase(opts);
   if (!parsed) {
     return;
   }
+  if (opts.abortSignal?.aborted) {
+    await opts.sendInvokeResult({
+      ok: false,
+      error: { code: "CANCELLED", message: "node invocation cancelled" },
+    });
+    return;
+  }
   const policyPhase = await evaluateSystemRunPolicyPhase(opts, parsed);
   if (!policyPhase) {
+    return;
+  }
+  if (opts.abortSignal?.aborted) {
+    await opts.sendInvokeResult({
+      ok: false,
+      error: { code: "CANCELLED", message: "node invocation cancelled" },
+    });
     return;
   }
   await executeSystemRunPhase(opts, policyPhase);

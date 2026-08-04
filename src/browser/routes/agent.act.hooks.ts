@@ -68,6 +68,7 @@ export function registerBrowserAgentActHookRoutes(
             targetId: tab.targetId,
             uid,
             filePath: resolvedPaths[0] ?? "",
+            ...(req.signal ? { signal: req.signal } : {}),
           });
           return res.json({ ok: true });
         }
@@ -135,6 +136,7 @@ export function registerBrowserAgentActHookRoutes(
           await evaluateChromeMcpScript({
             profileName: profileCtx.profile.name,
             targetId: tab.targetId,
+            ...(req.signal ? { signal: req.signal } : {}),
             fn: `() => {
               const state = (window.__openclawDialogHook ??= {});
               if (!state.originals) {

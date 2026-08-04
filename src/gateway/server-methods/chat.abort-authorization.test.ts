@@ -121,4 +121,23 @@ describe("chat.abort authorization", () => {
     expect(ok).toBe(true);
     expect(payload).toMatchObject({ aborted: true, runIds: ["run-1"] });
   });
+
+  it("rejects forced teardown without a controller record from non-admin clients", async () => {
+    const context = createChatAbortContext();
+
+    const respond = await invokeChatAbortHandler({
+      handler: chatHandlers["chat.abort"],
+      context,
+      request: { sessionKey: "main", runId: "run-1", force: true },
+      client: {
+        connId: "conn-operator",
+        connect: { device: { id: "dev-operator" }, scopes: ["operator.write"] },
+      },
+    });
+
+    const [ok, payload, error] = respond.mock.calls.at(-1) ?? [];
+    expect(ok).toBe(false);
+    expect(payload).toBeUndefined();
+    expect(error).toMatchObject({ code: "INVALID_REQUEST", message: "unauthorized" });
+  });
 });

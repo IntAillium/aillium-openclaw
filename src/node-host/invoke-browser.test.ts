@@ -156,4 +156,29 @@ describe("runBrowserProxyCommand", () => {
       ),
     ).rejects.toThrow("tab not found");
   });
+
+  it("propagates caller cancellation into an in-flight browser dispatch", async () => {
+    let observedSignal: AbortSignal | undefined;
+    dispatcherMocks.dispatch.mockImplementationOnce(
+      async ({ signal }: { signal?: AbortSignal }) => {
+        observedSignal = signal;
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+        return { status: 200, body: {} };
+      },
+    );
+    const controller = new AbortController();
+    const reason = new Error("cancel remote browser action");
+    const operation = runBrowserProxyCommand(
+      JSON.stringify({ method: "POST", path: "/act", timeoutMs: 5_000 }),
+      controller.signal,
+    );
+
+    await vi.waitFor(() => expect(observedSignal).toBeDefined());
+    controller.abort(reason);
+
+    await expect(operation).rejects.toBe(reason);
+    expect(observedSignal?.aborted).toBe(true);
+  });
 });

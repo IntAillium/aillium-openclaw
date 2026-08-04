@@ -108,43 +108,56 @@ function withBaseUrl(baseUrl: string | undefined, path: string): string {
 
 export async function browserStatus(
   baseUrl?: string,
-  opts?: { profile?: string },
+  opts?: { profile?: string; signal?: AbortSignal },
 ): Promise<BrowserStatus> {
   const q = buildProfileQuery(opts?.profile);
   return await fetchBrowserJson<BrowserStatus>(withBaseUrl(baseUrl, `/${q}`), {
     timeoutMs: 1500,
+    signal: opts?.signal,
   });
 }
 
-export async function browserProfiles(baseUrl?: string): Promise<ProfileStatus[]> {
+export async function browserProfiles(
+  baseUrl?: string,
+  opts?: { signal?: AbortSignal },
+): Promise<ProfileStatus[]> {
   const res = await fetchBrowserJson<{ profiles: ProfileStatus[] }>(
     withBaseUrl(baseUrl, `/profiles`),
     {
       timeoutMs: 3000,
+      signal: opts?.signal,
     },
   );
   return res.profiles ?? [];
 }
 
-export async function browserStart(baseUrl?: string, opts?: { profile?: string }): Promise<void> {
+export async function browserStart(
+  baseUrl?: string,
+  opts?: { profile?: string; signal?: AbortSignal },
+): Promise<void> {
   const q = buildProfileQuery(opts?.profile);
   await fetchBrowserJson(withBaseUrl(baseUrl, `/start${q}`), {
     method: "POST",
     timeoutMs: 15000,
+    signal: opts?.signal,
   });
 }
 
-export async function browserStop(baseUrl?: string, opts?: { profile?: string }): Promise<void> {
+export async function browserStop(
+  baseUrl?: string,
+  opts?: { profile?: string; signal?: AbortSignal },
+): Promise<void> {
   const q = buildProfileQuery(opts?.profile);
   await fetchBrowserJson(withBaseUrl(baseUrl, `/stop${q}`), {
     method: "POST",
     timeoutMs: 15000,
+    signal: opts?.signal,
   });
 }
 
 export async function browserResetProfile(
   baseUrl?: string,
-  opts?: { profile?: string },
+  opts?: { profile?: string; signal?: AbortSignal },
 ): Promise<BrowserResetProfileResult> {
   const q = buildProfileQuery(opts?.profile);
   return await fetchBrowserJson<BrowserResetProfileResult>(
@@ -152,6 +165,7 @@ export async function browserResetProfile(
     {
       method: "POST",
       timeoutMs: 20000,
+      signal: opts?.signal,
     },
   );
 }
@@ -212,12 +226,12 @@ export async function browserDeleteProfile(
 
 export async function browserTabs(
   baseUrl?: string,
-  opts?: { profile?: string },
+  opts?: { profile?: string; signal?: AbortSignal },
 ): Promise<BrowserTab[]> {
   const q = buildProfileQuery(opts?.profile);
   const res = await fetchBrowserJson<{ running: boolean; tabs: BrowserTab[] }>(
     withBaseUrl(baseUrl, `/tabs${q}`),
-    { timeoutMs: 3000 },
+    { timeoutMs: 3000, signal: opts?.signal },
   );
   return res.tabs ?? [];
 }
@@ -225,7 +239,7 @@ export async function browserTabs(
 export async function browserOpenTab(
   baseUrl: string | undefined,
   url: string,
-  opts?: { profile?: string },
+  opts?: { profile?: string; signal?: AbortSignal },
 ): Promise<BrowserTab> {
   const q = buildProfileQuery(opts?.profile);
   return await fetchBrowserJson<BrowserTab>(withBaseUrl(baseUrl, `/tabs/open${q}`), {
@@ -233,13 +247,14 @@ export async function browserOpenTab(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
     timeoutMs: 15000,
+    signal: opts?.signal,
   });
 }
 
 export async function browserFocusTab(
   baseUrl: string | undefined,
   targetId: string,
-  opts?: { profile?: string },
+  opts?: { profile?: string; signal?: AbortSignal },
 ): Promise<void> {
   const q = buildProfileQuery(opts?.profile);
   await fetchBrowserJson(withBaseUrl(baseUrl, `/tabs/focus${q}`), {
@@ -247,18 +262,20 @@ export async function browserFocusTab(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetId }),
     timeoutMs: 5000,
+    signal: opts?.signal,
   });
 }
 
 export async function browserCloseTab(
   baseUrl: string | undefined,
   targetId: string,
-  opts?: { profile?: string },
+  opts?: { profile?: string; signal?: AbortSignal },
 ): Promise<void> {
   const q = buildProfileQuery(opts?.profile);
   await fetchBrowserJson(withBaseUrl(baseUrl, `/tabs/${encodeURIComponent(targetId)}${q}`), {
     method: "DELETE",
     timeoutMs: 5000,
+    signal: opts?.signal,
   });
 }
 
@@ -268,6 +285,7 @@ export async function browserTabAction(
     action: "list" | "new" | "close" | "select";
     index?: number;
     profile?: string;
+    signal?: AbortSignal;
   },
 ): Promise<unknown> {
   const q = buildProfileQuery(opts.profile);
@@ -279,6 +297,7 @@ export async function browserTabAction(
       index: opts.index,
     }),
     timeoutMs: 10_000,
+    signal: opts.signal,
   });
 }
 
@@ -298,6 +317,7 @@ export async function browserSnapshot(
     labels?: boolean;
     mode?: "efficient";
     profile?: string;
+    signal?: AbortSignal;
   },
 ): Promise<SnapshotResult> {
   const q = new URLSearchParams();
@@ -342,6 +362,7 @@ export async function browserSnapshot(
   }
   return await fetchBrowserJson<SnapshotResult>(withBaseUrl(baseUrl, `/snapshot?${q.toString()}`), {
     timeoutMs: 20000,
+    signal: opts.signal,
   });
 }
 

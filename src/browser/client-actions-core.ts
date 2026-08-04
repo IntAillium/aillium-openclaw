@@ -131,6 +131,7 @@ export async function browserNavigate(
     url: string;
     targetId?: string;
     profile?: string;
+    signal?: AbortSignal;
   },
 ): Promise<BrowserActionTabResult> {
   const q = buildProfileQuery(opts.profile);
@@ -139,6 +140,7 @@ export async function browserNavigate(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url: opts.url, targetId: opts.targetId }),
     timeoutMs: 20000,
+    signal: opts.signal,
   });
 }
 
@@ -150,6 +152,7 @@ export async function browserArmDialog(
     targetId?: string;
     timeoutMs?: number;
     profile?: string;
+    signal?: AbortSignal;
   },
 ): Promise<BrowserActionOk> {
   const q = buildProfileQuery(opts.profile);
@@ -163,6 +166,7 @@ export async function browserArmDialog(
       timeoutMs: opts.timeoutMs,
     }),
     timeoutMs: 20000,
+    signal: opts.signal,
   });
 }
 
@@ -176,6 +180,7 @@ export async function browserArmFileChooser(
     targetId?: string;
     timeoutMs?: number;
     profile?: string;
+    signal?: AbortSignal;
   },
 ): Promise<BrowserActionOk> {
   const q = buildProfileQuery(opts.profile);
@@ -191,6 +196,7 @@ export async function browserArmFileChooser(
       timeoutMs: opts.timeoutMs,
     }),
     timeoutMs: 20000,
+    signal: opts.signal,
   });
 }
 
@@ -241,7 +247,7 @@ export async function browserDownload(
 export async function browserAct(
   baseUrl: string | undefined,
   req: BrowserActRequest,
-  opts?: { profile?: string },
+  opts?: { profile?: string; signal?: AbortSignal },
 ): Promise<BrowserActResponse> {
   const q = buildProfileQuery(opts?.profile);
   return await fetchBrowserJson<BrowserActResponse>(withBaseUrl(baseUrl, `/act${q}`), {
@@ -249,6 +255,7 @@ export async function browserAct(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
     timeoutMs: 20000,
+    signal: opts?.signal,
   });
 }
 
@@ -261,6 +268,7 @@ export async function browserScreenshotAction(
     element?: string;
     type?: "png" | "jpeg";
     profile?: string;
+    signal?: AbortSignal;
   },
 ): Promise<BrowserActionPathResult> {
   const q = buildProfileQuery(opts.profile);
@@ -275,5 +283,6 @@ export async function browserScreenshotAction(
       type: opts.type,
     }),
     timeoutMs: 20000,
+    signal: opts.signal,
   });
 }

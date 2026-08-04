@@ -31,6 +31,8 @@ import {
   errorShape,
   validateNodeDescribeParams,
   validateNodeEventParams,
+  validateNodeInvokeCancelParams,
+  validateNodeInvokeCancelResultParams,
   validateNodeInvokeParams,
   validateNodeListParams,
   validateNodePendingAckParams,
@@ -897,6 +899,7 @@ export const nodeHandlers: GatewayRequestHandlers = {
       params?: unknown;
       timeoutMs?: number;
       idempotencyKey: string;
+      invocationId?: string;
     };
     const nodeId = String(p.nodeId ?? "").trim();
     const command = String(p.command ?? "").trim();
@@ -1044,6 +1047,8 @@ export const nodeHandlers: GatewayRequestHandlers = {
         params: forwardedParams.params,
         timeoutMs: p.timeoutMs,
         idempotencyKey: p.idempotencyKey,
+        invocationId: p.invocationId,
+        ownerConnId: client?.connId,
       });
       if (!res.ok) {
         if (
@@ -1111,7 +1116,48 @@ export const nodeHandlers: GatewayRequestHandlers = {
       );
     });
   },
+  "node.invoke.cancel": async ({ params, respond, context, client }) => {
+    if (!validateNodeInvokeCancelParams(params)) {
+      respondInvalidParams({
+        respond,
+        method: "node.invoke.cancel",
+        validator: validateNodeInvokeCancelParams,
+      });
+      return;
+    }
+    const p = params as { nodeId: string; invocationId: string };
+    const cancellation = await context.nodeRegistry.cancelInvoke({
+      nodeId: p.nodeId,
+      invocationId: p.invocationId,
+      ownerConnId: client?.connId,
+      timeoutMs: 1_500,
+    });
+    respond(true, cancellation, undefined);
+  },
   "node.invoke.result": handleNodeInvokeResult,
+  "node.invoke.cancel.result": async ({ params, respond, context, client }) => {
+    if (!validateNodeInvokeCancelResultParams(params)) {
+      respondInvalidParams({
+        respond,
+        method: "node.invoke.cancel.result",
+        validator: validateNodeInvokeCancelResultParams,
+      });
+      return;
+    }
+    const p = params as {
+      nodeId: string;
+      invocationId: string;
+      acknowledged: boolean;
+      completed: boolean;
+    };
+    const callerNodeId = client?.connect?.device?.id ?? client?.connect?.client?.id;
+    if (callerNodeId && callerNodeId !== p.nodeId) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "nodeId mismatch"));
+      return;
+    }
+    const handled = context.nodeRegistry.handleInvokeCancelResult(p);
+    respond(true, { ok: true, ignored: !handled }, undefined);
+  },
   "node.event": async ({ params, respond, context, client }) => {
     if (!validateNodeEventParams(params)) {
       respondInvalidParams({

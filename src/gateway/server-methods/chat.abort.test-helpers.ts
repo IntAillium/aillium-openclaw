@@ -57,7 +57,7 @@ export function createChatAbortContext(
 export async function invokeChatAbortHandler(params: {
   handler: GatewayRequestHandler;
   context: ChatAbortTestContext;
-  request: { sessionKey: string; runId?: string };
+  request: { sessionKey: string; runId?: string; force?: boolean };
   client?: {
     connId?: string;
     connect?: {

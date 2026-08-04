@@ -55,7 +55,7 @@ describe("createPtyAdapter", () => {
     vi.clearAllMocks();
   });
 
-  it("forwards explicit signals to node-pty kill on non-Windows", async () => {
+  it("uses process-tree kill for cooperative signals on non-Windows", async () => {
     const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
     Object.defineProperty(process, "platform", { value: "linux", configurable: true });
     try {
@@ -67,8 +67,8 @@ describe("createPtyAdapter", () => {
       });
 
       adapter.kill("SIGTERM");
-      expect(ptyKillMock).toHaveBeenCalledWith("SIGTERM");
-      expect(killProcessTreeMock).not.toHaveBeenCalled();
+      expect(killProcessTreeMock).toHaveBeenCalledWith(1234, { graceMs: undefined });
+      expect(ptyKillMock).not.toHaveBeenCalled();
     } finally {
       if (originalPlatform) {
         Object.defineProperty(process, "platform", originalPlatform);
@@ -85,7 +85,7 @@ describe("createPtyAdapter", () => {
     });
 
     adapter.kill();
-    expect(killProcessTreeMock).toHaveBeenCalledWith(1234);
+    expect(killProcessTreeMock).toHaveBeenCalledWith(1234, { graceMs: 0 });
     expect(ptyKillMock).not.toHaveBeenCalled();
   });
 
@@ -173,7 +173,7 @@ describe("createPtyAdapter", () => {
     expect(expectSpawnEnv()).toEqual({ FOO: "bar", COUNT: "12" });
   });
 
-  it("does not pass a signal to node-pty on Windows", async () => {
+  it("uses process-tree kill for cooperative signals on Windows", async () => {
     const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
     Object.defineProperty(process, "platform", { value: "win32", configurable: true });
     try {
@@ -185,8 +185,8 @@ describe("createPtyAdapter", () => {
       });
 
       adapter.kill("SIGTERM");
-      expect(ptyKillMock).toHaveBeenCalledWith(undefined);
-      expect(killProcessTreeMock).not.toHaveBeenCalled();
+      expect(killProcessTreeMock).toHaveBeenCalledWith(1234, { graceMs: undefined });
+      expect(ptyKillMock).not.toHaveBeenCalled();
     } finally {
       if (originalPlatform) {
         Object.defineProperty(process, "platform", originalPlatform);
@@ -206,7 +206,7 @@ describe("createPtyAdapter", () => {
       });
 
       adapter.kill("SIGKILL");
-      expect(killProcessTreeMock).toHaveBeenCalledWith(4567);
+      expect(killProcessTreeMock).toHaveBeenCalledWith(4567, { graceMs: 0 });
       expect(ptyKillMock).not.toHaveBeenCalled();
     } finally {
       if (originalPlatform) {

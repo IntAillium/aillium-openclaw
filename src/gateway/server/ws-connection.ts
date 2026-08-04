@@ -242,12 +242,15 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
         upsertPresence(client.presenceKey, { reason: "disconnect" });
         broadcastPresenceSnapshot({ broadcast, incrementPresenceVersion, getHealthVersion });
       }
-      if (client?.connect?.role === "node") {
+      if (client) {
         const context = buildRequestContext();
-        const nodeId = context.nodeRegistry.unregister(connId);
-        if (nodeId) {
-          removeRemoteNodeInfo(nodeId);
-          context.nodeUnsubscribeAll(nodeId);
+        context.nodeRegistry.cancelInvokesByOwner(connId);
+        if (client.connect?.role === "node") {
+          const nodeId = context.nodeRegistry.unregister(connId);
+          if (nodeId) {
+            removeRemoteNodeInfo(nodeId);
+            context.nodeUnsubscribeAll(nodeId);
+          }
         }
       }
       logWs("out", "close", {

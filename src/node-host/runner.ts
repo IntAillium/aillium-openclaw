@@ -15,12 +15,8 @@ import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { VERSION } from "../version.js";
 import { ensureNodeHostConfig, saveNodeHostConfig, type NodeHostGatewayConfig } from "./config.js";
-import {
-  coerceNodeInvokePayload,
-  handleInvoke,
-  type SkillBinsProvider,
-  buildNodeInvokeResultParams,
-} from "./invoke.js";
+import { NodeInvocationRuntime } from "./invocation-runtime.js";
+import { type SkillBinsProvider, buildNodeInvokeResultParams } from "./invoke.js";
 
 export { buildNodeInvokeResultParams };
 
@@ -198,14 +194,13 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
     deviceIdentity: loadOrCreateDeviceIdentity(),
     tlsFingerprint: gateway.tlsFingerprint,
     onEvent: (evt) => {
-      if (evt.event !== "node.invoke.request") {
+      if (evt.event === "node.invoke.request") {
+        invocationRuntime.handleRequest(evt.payload);
         return;
       }
-      const payload = coerceNodeInvokePayload(evt.payload);
-      if (!payload) {
-        return;
+      if (evt.event === "node.invoke.cancel") {
+        void invocationRuntime.handleCancel(evt.payload);
       }
-      void handleInvoke(payload, client, skillBins);
     },
     onConnectError: (err) => {
       // keep retrying (handled by GatewayClient)
@@ -223,6 +218,8 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
     const bins = Array.isArray(res?.bins) ? res.bins.map((bin) => String(bin)) : [];
     return bins;
   }, pathEnv);
+
+  const invocationRuntime = new NodeInvocationRuntime(client, skillBins);
 
   client.start();
   await new Promise(() => {});

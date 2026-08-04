@@ -207,7 +207,10 @@ function formatBrowserProxyTimeoutMessage(params: {
   return parts.join("; ");
 }
 
-export async function runBrowserProxyCommand(paramsJSON?: string | null): Promise<string> {
+export async function runBrowserProxyCommand(
+  paramsJSON?: string | null,
+  abortSignal?: AbortSignal,
+): Promise<string> {
   const params = decodeParams<BrowserProxyParams>(paramsJSON);
   const pathValue = typeof params.path === "string" ? params.path.trim() : "";
   if (!pathValue) {
@@ -219,6 +222,9 @@ export async function runBrowserProxyCommand(paramsJSON?: string | null): Promis
   }
 
   await ensureBrowserControlService();
+  if (abortSignal?.aborted) {
+    throw abortSignal.reason ?? new Error("browser proxy request aborted");
+  }
   const cfg = loadConfig();
   const resolved = resolveBrowserConfig(cfg.browser, cfg);
   const requestedProfile = typeof params.profile === "string" ? params.profile.trim() : "";
@@ -266,8 +272,12 @@ export async function runBrowserProxyCommand(paramsJSON?: string | null): Promis
         }),
       timeoutMs,
       "browser proxy request",
+      abortSignal,
     );
   } catch (err) {
+    if (abortSignal?.aborted) {
+      throw abortSignal.reason ?? err;
+    }
     if (!isBrowserProxyTimeoutError(err)) {
       throw err;
     }

@@ -36,7 +36,7 @@ describe("killProcessTree", () => {
     vi.clearAllMocks();
   });
 
-  it("on Windows skips delayed force-kill when PID is already gone", async () => {
+  it("on Windows runs the forced tree pass even when the leader is already gone", async () => {
     killSpy.mockImplementation(((pid: number, signal?: NodeJS.Signals | number) => {
       if (pid === 4242 && signal === 0) {
         throw new Error("ESRCH");
@@ -56,11 +56,17 @@ describe("killProcessTree", () => {
       );
 
       await vi.advanceTimersByTimeAsync(25);
-      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+      expect(spawnMock).toHaveBeenNthCalledWith(
+        2,
+        "taskkill",
+        ["/F", "/T", "/PID", "4242"],
+        expect.objectContaining({ detached: true, stdio: "ignore" }),
+      );
     });
   });
 
-  it("on Windows force-kills after grace period only when PID still exists", async () => {
+  it("on Windows force-kills after the grace period", async () => {
     killSpy.mockImplementation(((pid: number, signal?: NodeJS.Signals | number) => {
       if (pid === 5252 && signal === 0) {
         return true;

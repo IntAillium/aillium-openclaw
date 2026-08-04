@@ -3,9 +3,13 @@ import {
   logMessageQueued,
   logSessionStateChange,
 } from "../../logging/diagnostic.js";
+import { getProcessSupervisor } from "../../process/supervisor/index.js";
+import type { ProcessCancellationResult } from "../../process/supervisor/index.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 
 type EmbeddedPiQueueHandle = {
+  runId?: string;
+  processScopeKey?: string;
   queueMessage: (text: string) => Promise<void>;
   isStreaming: () => boolean;
   isCompacting: () => boolean;
@@ -31,10 +35,15 @@ const EMBEDDED_RUN_STATE_KEY = Symbol.for("openclaw.embeddedRunState");
 
 const embeddedRunState = resolveGlobalSingleton(EMBEDDED_RUN_STATE_KEY, () => ({
   activeRuns: new Map<string, EmbeddedPiQueueHandle>(),
+  activeRunsByRunId: new Map<
+    string,
+    { sessionId: string; sessionKey?: string; handle: EmbeddedPiQueueHandle }
+  >(),
   snapshots: new Map<string, ActiveEmbeddedRunSnapshot>(),
   waiters: new Map<string, Set<EmbeddedRunWaiter>>(),
 }));
 const ACTIVE_EMBEDDED_RUNS = embeddedRunState.activeRuns;
+const ACTIVE_EMBEDDED_RUNS_BY_RUN_ID = embeddedRunState.activeRunsByRunId;
 const ACTIVE_EMBEDDED_RUN_SNAPSHOTS = embeddedRunState.snapshots;
 const EMBEDDED_RUN_WAITERS = embeddedRunState.waiters;
 
@@ -143,6 +152,124 @@ export function getActiveEmbeddedRunCount(): number {
   return ACTIVE_EMBEDDED_RUNS.size;
 }
 
+export function isEmbeddedPiRunActiveByRunId(runId: string, expectedSessionKey?: string): boolean {
+  const active = ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.get(runId.trim());
+  return Boolean(active && (!expectedSessionKey || active.sessionKey === expectedSessionKey));
+}
+
+export type EmbeddedRunCancellationResult = {
+  runId: string;
+  sessionId?: string;
+  sessionKey?: string;
+  acknowledged: boolean;
+  cooperativeAbortRequested: boolean;
+  runDrained: boolean;
+  processTeardown: ProcessCancellationResult;
+  teardownComplete: boolean;
+  deadlineMs: number;
+  elapsedMs: number;
+};
+
+export function embeddedRunProcessScopeKey(runId: string): string {
+  return `run:${runId.trim()}`;
+}
+
+/**
+ * Abort one embedded run and wait for its model/tool wrapper and owned process
+ * scope to drain. The result is explicit so the control plane can distinguish
+ * an accepted request from completed teardown.
+ */
+export async function abortEmbeddedPiRunByRunId(
+  runId: string,
+  opts?: { deadlineMs?: number; expectedSessionKey?: string; forceProcessTeardown?: boolean },
+): Promise<EmbeddedRunCancellationResult> {
+  const normalizedRunId = runId.trim();
+  const startedAt = Date.now();
+  const deadlineMs = Math.max(1, Math.min(5_000, Math.floor(opts?.deadlineMs ?? 5_000)));
+  const expectedSessionKey = opts?.expectedSessionKey;
+  const candidate = ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.get(normalizedRunId);
+  const active =
+    !expectedSessionKey || candidate?.sessionKey === expectedSessionKey ? candidate : undefined;
+  if (!active) {
+    const durableTeardown = expectedSessionKey
+      ? await getProcessSupervisor().consumeVerifiedTeardownReceipt(
+          embeddedRunProcessScopeKey(normalizedRunId),
+          expectedSessionKey,
+        )
+      : undefined;
+    if (durableTeardown?.teardownComplete) {
+      return {
+        runId: normalizedRunId,
+        sessionKey: expectedSessionKey,
+        acknowledged: true,
+        cooperativeAbortRequested: false,
+        runDrained: true,
+        processTeardown: durableTeardown,
+        teardownComplete: true,
+        deadlineMs,
+        elapsedMs: Date.now() - startedAt,
+      };
+    }
+    return {
+      runId: normalizedRunId,
+      acknowledged: false,
+      cooperativeAbortRequested: false,
+      runDrained: false,
+      processTeardown: {
+        requested: false,
+        matchedRunIds: [],
+        terminatedRunIds: [],
+        remainingRunIds: [],
+        deadlineMs,
+        elapsedMs: Date.now() - startedAt,
+        teardownComplete: false,
+      },
+      teardownComplete: false,
+      deadlineMs,
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
+  let cooperativeAbortRequested = false;
+  if (active) {
+    try {
+      active.handle.abort();
+      cooperativeAbortRequested = true;
+    } catch (err) {
+      diag.warn(`abort failed: runId=${normalizedRunId} err=${String(err)}`);
+    }
+  }
+
+  const elapsedBeforeProcessMs = Date.now() - startedAt;
+  const processTeardown = await getProcessSupervisor().cancelScopeAndWait(
+    active?.handle.processScopeKey ?? embeddedRunProcessScopeKey(normalizedRunId),
+    {
+      reason: "manual-cancel",
+      deadlineMs: Math.max(1, deadlineMs - elapsedBeforeProcessMs),
+      force: opts?.forceProcessTeardown === true,
+    },
+  );
+
+  while (
+    ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.has(normalizedRunId) &&
+    Date.now() - startedAt < deadlineMs
+  ) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  const runDrained = !ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.has(normalizedRunId);
+  return {
+    runId: normalizedRunId,
+    sessionId: active?.sessionId,
+    sessionKey: active?.sessionKey,
+    acknowledged: Boolean(active) || processTeardown.requested,
+    cooperativeAbortRequested,
+    runDrained,
+    processTeardown,
+    teardownComplete: runDrained && processTeardown.teardownComplete,
+    deadlineMs,
+    elapsedMs: Date.now() - startedAt,
+  };
+}
+
 export function getActiveEmbeddedRunSnapshot(
   sessionId: string,
 ): ActiveEmbeddedRunSnapshot | undefined {
@@ -231,8 +358,20 @@ export function setActiveEmbeddedRun(
   handle: EmbeddedPiQueueHandle,
   sessionKey?: string,
 ) {
-  const wasActive = ACTIVE_EMBEDDED_RUNS.has(sessionId);
+  const previousHandle = ACTIVE_EMBEDDED_RUNS.get(sessionId);
+  const wasActive = Boolean(previousHandle);
+  if (previousHandle && previousHandle !== handle) {
+    const previousRunId = previousHandle.runId?.trim() || sessionId;
+    if (ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.get(previousRunId)?.handle === previousHandle) {
+      ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.delete(previousRunId);
+    }
+  }
   ACTIVE_EMBEDDED_RUNS.set(sessionId, handle);
+  ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.set(handle.runId?.trim() || sessionId, {
+    sessionId,
+    sessionKey,
+    handle,
+  });
   logSessionStateChange({
     sessionId,
     sessionKey,
@@ -259,6 +398,10 @@ export function clearActiveEmbeddedRun(
   handle: EmbeddedPiQueueHandle,
   sessionKey?: string,
 ) {
+  const handleRunId = handle.runId?.trim() || sessionId;
+  if (ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.get(handleRunId)?.handle === handle) {
+    ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.delete(handleRunId);
+  }
   if (ACTIVE_EMBEDDED_RUNS.get(sessionId) === handle) {
     ACTIVE_EMBEDDED_RUNS.delete(sessionId);
     ACTIVE_EMBEDDED_RUN_SNAPSHOTS.delete(sessionId);
@@ -282,6 +425,7 @@ export const __testing = {
     }
     EMBEDDED_RUN_WAITERS.clear();
     ACTIVE_EMBEDDED_RUNS.clear();
+    ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.clear();
     ACTIVE_EMBEDDED_RUN_SNAPSHOTS.clear();
   },
 };

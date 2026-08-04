@@ -155,8 +155,8 @@ export async function createPtyAdapter(params: {
 
   const kill = (signal: NodeJS.Signals = "SIGKILL") => {
     try {
-      if (signal === "SIGKILL" && typeof pty.pid === "number" && pty.pid > 0) {
-        killProcessTree(pty.pid);
+      if (typeof pty.pid === "number" && pty.pid > 0) {
+        killProcessTree(pty.pid, { graceMs: signal === "SIGKILL" ? 0 : undefined });
       } else if (process.platform === "win32") {
         pty.kill();
       } else {

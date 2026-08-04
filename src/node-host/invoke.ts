@@ -189,11 +189,36 @@ function requireExecApprovalsBaseHash(
   }
 }
 
-async function runCommand(
+function forceKillCommandTree(child: ReturnType<typeof spawn>): void {
+  const pid = child.pid;
+  if (!pid) {
+    return;
+  }
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/F", "/T", "/PID", String(pid)], {
+      stdio: "ignore",
+      windowsHide: true,
+      timeout: 5_000,
+    });
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+export async function runCommand(
   argv: string[],
   cwd: string | undefined,
   env: Record<string, string> | undefined,
   timeoutMs: number | undefined,
+  abortSignal?: AbortSignal,
 ): Promise<RunResult> {
   return await new Promise((resolve) => {
     const stdoutChunks: Buffer[] = [];
@@ -201,15 +226,38 @@ async function runCommand(
     let outputLen = 0;
     let truncated = false;
     let timedOut = false;
+    let cancelled = false;
     let settled = false;
     const windowsEncoding = resolveWindowsConsoleEncoding();
+
+    if (abortSignal?.aborted) {
+      resolve({
+        timedOut: false,
+        success: false,
+        stdout: "",
+        stderr: "",
+        error: "node invocation cancelled",
+        truncated: false,
+      });
+      return;
+    }
 
     const child = spawn(argv[0], argv.slice(1), {
       cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
+      detached: process.platform !== "win32",
     });
+
+    const onAbort = () => {
+      cancelled = true;
+      forceKillCommandTree(child);
+    };
+    abortSignal?.addEventListener("abort", onAbort, { once: true });
+    if (abortSignal?.aborted) {
+      onAbort();
+    }
 
     const onChunk = (chunk: Buffer, target: "stdout" | "stderr") => {
       if (outputLen >= OUTPUT_CAP) {
@@ -236,11 +284,7 @@ async function runCommand(
     if (timeoutMs && timeoutMs > 0) {
       timer = setTimeout(() => {
         timedOut = true;
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // ignore
-        }
+        forceKillCommandTree(child);
       }, timeoutMs);
     }
 
@@ -252,6 +296,7 @@ async function runCommand(
       if (timer) {
         clearTimeout(timer);
       }
+      abortSignal?.removeEventListener("abort", onAbort);
       const stdout = decodeCapturedOutputBuffer({
         buffer: Buffer.concat(stdoutChunks),
         windowsEncoding,
@@ -263,10 +308,10 @@ async function runCommand(
       resolve({
         exitCode,
         timedOut,
-        success: exitCode === 0 && !timedOut && !error,
+        success: exitCode === 0 && !timedOut && !cancelled && !error,
         stdout,
         stderr,
-        error: error ?? null,
+        error: error ?? (cancelled ? "node invocation cancelled" : null),
         truncated,
       });
     };
@@ -418,8 +463,13 @@ export async function handleInvoke(
   frame: NodeInvokeRequestPayload,
   client: GatewayClient,
   skillBins: SkillBinsProvider,
+  abortSignal?: AbortSignal,
 ) {
   const command = String(frame.command ?? "");
+  if (abortSignal?.aborted) {
+    await sendErrorResult(client, frame, "CANCELLED", "node invocation cancelled");
+    return;
+  }
   if (command === "system.execApprovals.get") {
     try {
       ensureExecApprovals();
@@ -482,10 +532,14 @@ export async function handleInvoke(
 
   if (command === "browser.proxy") {
     try {
-      const payload = await runBrowserProxyCommand(frame.paramsJSON);
+      const payload = await runBrowserProxyCommand(frame.paramsJSON, abortSignal);
       await sendRawPayloadResult(client, frame, payload);
     } catch (err) {
-      await sendInvalidRequestResult(client, frame, err);
+      if (abortSignal?.aborted) {
+        await sendErrorResult(client, frame, "CANCELLED", "node invocation cancelled");
+      } else {
+        await sendInvalidRequestResult(client, frame, err);
+      }
     }
     return;
   }
@@ -542,6 +596,7 @@ export async function handleInvoke(
     isCmdExeInvocation,
     sanitizeEnv,
     runCommand,
+    abortSignal,
     runViaMacAppExecHost,
     sendNodeEvent,
     buildExecEventPayload,

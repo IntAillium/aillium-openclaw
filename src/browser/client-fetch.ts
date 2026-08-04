@@ -328,6 +328,18 @@ export async function fetchBrowserJson<T>(
     }
     return result.body as T;
   } catch (err) {
+    if (init?.signal?.aborted) {
+      const reason = init.signal.reason;
+      if (reason instanceof Error) {
+        throw reason;
+      }
+      const abortError = new Error(
+        "Browser request aborted",
+        reason ? { cause: reason } : undefined,
+      );
+      abortError.name = "AbortError";
+      throw abortError;
+    }
     if (err instanceof BrowserServiceError) {
       throw err;
     }

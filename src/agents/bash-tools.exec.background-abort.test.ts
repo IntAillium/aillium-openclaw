@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "vitest";
+import { getProcessSupervisor } from "../process/supervisor/index.js";
 import {
   getFinishedSession,
   getSession,
@@ -182,3 +183,23 @@ test("yielded background exec still times out", async () => {
     },
   });
 });
+
+test("run cancellation tears down a yielded background exec that ignores SIGTERM", async () => {
+  const scopeKey = `run:yielded-cancel-${Date.now()}`;
+  const command =
+    process.platform === "win32"
+      ? BACKGROUND_HOLD_CMD
+      : `node -e "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"`;
+  const tool = createTestExecTool({ allowBackground: true, backgroundMs: 10, scopeKey });
+  const result = await tool.execute("toolcall", { command, yieldMs: 5 });
+  expect(result.details.status).toBe("running");
+  const sessionId = (result.details as { sessionId: string }).sessionId;
+
+  const cancellation = await getProcessSupervisor().cancelScopeAndWait(scopeKey, {
+    deadlineMs: 4_500,
+  });
+  expect(cancellation.requested).toBe(true);
+  expect(cancellation.teardownComplete).toBe(true);
+  const finished = await waitForFinishedSession(sessionId);
+  expect(finished?.status).toBe("failed");
+}, 10_000);

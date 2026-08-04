@@ -250,6 +250,49 @@ describe("chrome MCP page parsing", () => {
     expect(tabs).toHaveLength(2);
   });
 
+  it("waits for the attached MCP transport to close before an aborted action settles", async () => {
+    const controller = new AbortController();
+    let releaseClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const session = createFakeSession();
+    const callTool = vi.fn(
+      async (_request: ToolCall, _schema: unknown, options?: { signal?: AbortSignal }) =>
+        await new Promise<never>((_resolve, reject) => {
+          options?.signal?.addEventListener(
+            "abort",
+            () => reject(options.signal?.reason ?? new Error("aborted")),
+            { once: true },
+          );
+        }),
+    );
+    const close = vi.fn(async () => await closeGate);
+    session.client.callTool = callTool as typeof session.client.callTool;
+    session.client.close = close as typeof session.client.close;
+    setChromeMcpSessionFactoryForTest(async () => session);
+
+    const operation = evaluateChromeMcpScript({
+      profileName: "chrome-live",
+      targetId: "1",
+      fn: "() => new Promise(() => {})",
+      signal: controller.signal,
+    });
+    let settled = false;
+    void operation.catch(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(callTool).toHaveBeenCalledTimes(1));
+
+    controller.abort(new Error("cancelled"));
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    expect(settled).toBe(false);
+
+    releaseClose();
+    await expect(operation).rejects.toThrow("cancelled");
+    expect(settled).toBe(true);
+  });
+
   it("clears failed pending sessions so the next call can retry", async () => {
     let factoryCalls = 0;
     const factory: ChromeMcpSessionFactory = async () => {
