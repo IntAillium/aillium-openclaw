@@ -22,9 +22,7 @@ describe("auth profile runtime snapshots", () => {
   });
 
   it("serves a profile upserted after the snapshot was taken", async () => {
-    replaceRuntimeAuthProfileStoreSnapshots([
-      { agentDir, store: { version: 1, profiles: {} } },
-    ]);
+    replaceRuntimeAuthProfileStoreSnapshots([{ agentDir, store: { version: 1, profiles: {} } }]);
 
     await upsertAuthProfileWithLock({
       agentDir,
