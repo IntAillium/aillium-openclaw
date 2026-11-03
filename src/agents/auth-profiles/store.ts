@@ -90,6 +90,15 @@ export async function updateAuthProfileStoreWithLock(params: {
       const shouldSave = params.updater(store);
       if (shouldSave) {
         saveAuthProfileStore(store, params.agentDir);
+        // While runtime snapshots are active, reads are served from them and
+        // never see the file again. Refresh this store's snapshot so a profile
+        // added at runtime (e.g. via auth_profiles.upsert) is usable at once.
+        if (runtimeAuthStoreSnapshots.size > 0) {
+          runtimeAuthStoreSnapshots.set(
+            resolveRuntimeStoreKey(params.agentDir),
+            cloneAuthProfileStore(store),
+          );
+        }
       }
       return store;
     });
