@@ -157,7 +157,24 @@ export function createProfileAvailability({
     );
   };
 
+  // Several requests can arrive while Chrome is still starting (for example the agent's
+  // first browser call and a live-view screenshot). Without this they each saw "not running"
+  // and launched or restarted Chrome, closing tabs the agent had just opened.
   const ensureBrowserAvailable = async (): Promise<void> => {
+    const profileState = getProfileState();
+    if (profileState.ensuring) {
+      return await profileState.ensuring;
+    }
+    const pending = ensureBrowserAvailableOnce().finally(() => {
+      if (profileState.ensuring === pending) {
+        profileState.ensuring = null;
+      }
+    });
+    profileState.ensuring = pending;
+    return await pending;
+  };
+
+  const ensureBrowserAvailableOnce = async (): Promise<void> => {
     await reconcileProfileRuntime();
     if (capabilities.usesChromeMcp) {
       await ensureChromeMcpAvailable(profile.name);

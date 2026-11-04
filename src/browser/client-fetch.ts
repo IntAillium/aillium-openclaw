@@ -1,6 +1,7 @@
 import { formatCliCommand } from "../cli/command-format.js";
 import { loadConfig } from "../config/config.js";
 import { isLoopbackHost } from "../gateway/net.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getBridgeAuthForPort } from "./bridge-auth-registry.js";
 import { resolveBrowserControlAuth } from "./control-auth.js";
 import {
@@ -8,6 +9,19 @@ import {
   startBrowserControlServiceFromConfig,
 } from "./control-service.js";
 import { createBrowserRouteDispatcher } from "./routes/dispatcher.js";
+
+const log = createSubsystemLogger("browser").child("client");
+
+// Thrown when our own per-call timer ends an in-process browser request.
+class BrowserDispatchTimeoutError extends Error {
+  constructor(
+    readonly path: string,
+    readonly timeoutMs: number,
+  ) {
+    super("timed out");
+    this.name = "BrowserDispatchTimeoutError";
+  }
+}
 
 // Application-level error from the browser control service (service is reachable
 // but returned an error response). Must NOT be wrapped with "Can't reach ..." messaging.
@@ -168,6 +182,17 @@ function enhanceDispatcherPathError(url: string, err: unknown): Error {
   return new Error(`${normalized} ${suffix}`, err instanceof Error ? { cause: err } : undefined);
 }
 
+// A single slow step (a page still loading, Chrome busy right after start) should not make
+// the agent abandon the browser for the rest of the task, so in-process timeouts allow one retry.
+function describeDispatchTimeout(err: BrowserDispatchTimeoutError): Error {
+  return new Error(
+    `The browser did not finish ${err.path} within ${Math.round(err.timeoutMs / 1000)}s. ` +
+      "The page may still be loading. Retry this browser step once; if it times out again, " +
+      "use an alternative approach or tell the user the browser is not responding.",
+    { cause: err },
+  );
+}
+
 function enhanceBrowserFetchError(url: string, err: unknown, timeoutMs: number): Error {
   const operatorHint = resolveBrowserFetchOperatorHint(url);
   const msg = String(err);
@@ -285,7 +310,10 @@ export async function fetchBrowserJson<T>(
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (timeoutMs) {
-      timer = setTimeout(() => abortCtrl.abort(new Error("timed out")), timeoutMs);
+      timer = setTimeout(
+        () => abortCtrl.abort(new BrowserDispatchTimeoutError(parsed.pathname, timeoutMs)),
+        timeoutMs,
+      );
     }
 
     const dispatchPromise = dispatcher.dispatch({
@@ -334,6 +362,10 @@ export async function fetchBrowserJson<T>(
     // Dispatcher-path failures are service-operation failures, not network
     // reachability failures. Keep the original context, but retain anti-retry hints.
     if (isDispatcherPath) {
+      if (err instanceof BrowserDispatchTimeoutError) {
+        log.warn(`browser ${err.path} timed out after ${err.timeoutMs}ms`);
+        throw describeDispatchTimeout(err);
+      }
       throw enhanceDispatcherPathError(url, err);
     }
     throw enhanceBrowserFetchError(url, err, timeoutMs);
