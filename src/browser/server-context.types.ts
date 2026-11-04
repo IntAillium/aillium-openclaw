@@ -14,6 +14,8 @@ export type ProfileRuntimeState = {
   running: RunningChrome | null;
   /** Sticky tab selection when callers omit targetId (keeps snapshot+act consistent). */
   lastTargetId?: string | null;
+  /** In-flight start/attach, shared so concurrent callers don't launch Chrome twice. */
+  ensuring?: Promise<void> | null;
   reconcile?: {
     previousProfile: ResolvedBrowserProfile;
     reason: string;
