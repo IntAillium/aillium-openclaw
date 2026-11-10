@@ -26,4 +26,10 @@ describe("chrome extension manifest", () => {
     expect(permissions).toContain("storage");
     expect(permissions).toContain("debugger");
   });
+
+  it("can group Aillium's tabs and offer Stop on the toolbar icon", () => {
+    const permissions = readManifest().permissions ?? [];
+    expect(permissions).toContain("tabGroups");
+    expect(permissions).toContain("contextMenus");
+  });
 });

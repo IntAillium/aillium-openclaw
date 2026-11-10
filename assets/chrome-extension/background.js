@@ -1,5 +1,7 @@
 import {
   buildRelayWsUrl,
+  DEFAULT_AILLIUM_SERVER,
+  hostedConnectUrl,
   isLastRemainingTab,
   isMissingTabError,
   isRetryableReconnectError,
@@ -97,6 +99,45 @@ async function getRelayPort() {
   return n
 }
 
+/**
+ * Aillium for Chrome settings. With a pairing code the extension connects out
+ * to Aillium (hosted); without one it uses the local relay as before.
+ */
+async function getHostedSettings() {
+  const stored = await chrome.storage.local.get(['ailliumServer', 'pairingCode', 'ailliumStopped'])
+  const pairingCode = String(stored.pairingCode || '').trim()
+  return {
+    hosted: Boolean(pairingCode),
+    serverUrl: String(stored.ailliumServer || '').trim() || DEFAULT_AILLIUM_SERVER,
+    pairingCode,
+    stopped: stored.ailliumStopped === true,
+  }
+}
+
+// Tabs Aillium opens go in one purple "Aillium" group, so they are easy to tell apart.
+async function addToAilliumGroup(tabId) {
+  try {
+    const stored = await chrome.storage.session.get(['ailliumGroupId'])
+    let groupId = typeof stored.ailliumGroupId === 'number' ? stored.ailliumGroupId : undefined
+    if (groupId !== undefined) {
+      try {
+        await chrome.tabGroups.get(groupId)
+      } catch {
+        groupId = undefined
+      }
+    }
+    if (groupId !== undefined) {
+      await chrome.tabs.group({ groupId, tabIds: [tabId] })
+      return
+    }
+    groupId = await chrome.tabs.group({ tabIds: [tabId] })
+    await chrome.tabGroups.update(groupId, { title: 'Aillium', color: 'purple' })
+    await chrome.storage.session.set({ ailliumGroupId: groupId })
+  } catch {
+    // Grouping is a convenience; never block the task on it.
+  }
+}
+
 async function getGatewayToken() {
   const stored = await chrome.storage.local.get(['gatewayToken'])
   const token = String(stored.gatewayToken || '').trim()
@@ -168,16 +209,24 @@ async function ensureRelayConnection() {
   if (relayConnectPromise) return await relayConnectPromise
 
   relayConnectPromise = (async () => {
-    const port = await getRelayPort()
-    const gatewayToken = await getGatewayToken()
-    const httpBase = `http://127.0.0.1:${port}`
-    const wsUrl = await buildRelayWsUrl(port, gatewayToken)
+    const settings = await getHostedSettings()
+    let wsUrl
+    let gatewayToken = ''
+    if (settings.hosted) {
+      if (settings.stopped) throw new Error('Aillium is stopped in this browser')
+      wsUrl = hostedConnectUrl(settings.serverUrl, settings.pairingCode)
+    } else {
+      const port = await getRelayPort()
+      gatewayToken = await getGatewayToken()
+      const httpBase = `http://127.0.0.1:${port}`
+      wsUrl = await buildRelayWsUrl(port, gatewayToken)
 
-    // Fast preflight: is the relay server up?
-    try {
-      await fetch(`${httpBase}/`, { method: 'HEAD', signal: AbortSignal.timeout(2000) })
-    } catch (err) {
-      throw new Error(`Relay server not reachable at ${httpBase} (${String(err)})`)
+      // Fast preflight: is the relay server up?
+      try {
+        await fetch(`${httpBase}/`, { method: 'HEAD', signal: AbortSignal.timeout(2000) })
+      } catch (err) {
+        throw new Error(`Relay server not reachable at ${httpBase} (${String(err)})`)
+      }
     }
 
     const ws = new WebSocket(wsUrl)
@@ -245,7 +294,7 @@ function onRelayClosed(reason) {
       setBadge(tabId, 'connecting')
       void chrome.action.setTitle({
         tabId,
-        title: 'OpenClaw Browser Relay: relay reconnecting…',
+        title: 'Aillium for Chrome: relay reconnecting…',
       })
     }
   }
@@ -304,7 +353,7 @@ async function reannounceAttachedTabs() {
       setBadge(tabId, 'off')
       void chrome.action.setTitle({
         tabId,
-        title: 'OpenClaw Browser Relay (click to attach/detach)',
+        title: 'Aillium for Chrome (click to attach/detach)',
       })
       continue
     }
@@ -343,7 +392,7 @@ async function reannounceAttachedTabs() {
       setBadge(tabId, 'on')
       void chrome.action.setTitle({
         tabId,
-        title: 'OpenClaw Browser Relay: attached (click to detach)',
+        title: 'Aillium for Chrome: attached (click to detach)',
       })
     } catch {
       // Relay send failed (e.g. WS closed in the gap between ensureRelayConnection
@@ -353,7 +402,7 @@ async function reannounceAttachedTabs() {
       setBadge(tabId, 'connecting')
       void chrome.action.setTitle({
         tabId,
-        title: 'OpenClaw Browser Relay: relay reconnecting…',
+        title: 'Aillium for Chrome: relay reconnecting…',
       })
     }
   }
@@ -527,7 +576,7 @@ async function attachTab(tabId, opts = {}) {
   tabBySession.set(sessionId, tabId)
   void chrome.action.setTitle({
     tabId,
-    title: 'OpenClaw Browser Relay: attached (click to detach)',
+    title: 'Aillium for Chrome: attached (click to detach)',
   })
 
   if (!opts.skipAttachedEvent) {
@@ -598,7 +647,7 @@ async function detachTab(tabId, reason) {
   setBadge(tabId, 'off')
   void chrome.action.setTitle({
     tabId,
-    title: 'OpenClaw Browser Relay (click to attach/detach)',
+    title: 'Aillium for Chrome (click to attach/detach)',
   })
 
   await persistState()
@@ -619,7 +668,7 @@ async function connectOrToggleForActiveTab() {
       setBadge(tabId, 'off')
       void chrome.action.setTitle({
         tabId,
-        title: 'OpenClaw Browser Relay (click to attach/detach)',
+        title: 'Aillium for Chrome (click to attach/detach)',
       })
       return
     }
@@ -637,7 +686,7 @@ async function connectOrToggleForActiveTab() {
     setBadge(tabId, 'connecting')
     void chrome.action.setTitle({
       tabId,
-      title: 'OpenClaw Browser Relay: connecting to local relay…',
+      title: 'Aillium for Chrome: connecting to local relay…',
     })
 
     try {
@@ -648,7 +697,7 @@ async function connectOrToggleForActiveTab() {
       setBadge(tabId, 'error')
       void chrome.action.setTitle({
         tabId,
-        title: 'OpenClaw Browser Relay: relay not running (open options for setup)',
+        title: 'Aillium for Chrome: relay not running (open options for setup)',
       })
       void maybeOpenHelpOnce()
       const message = err instanceof Error ? err.message : String(err)
@@ -663,6 +712,17 @@ async function handleForwardCdpCommand(msg) {
   const method = String(msg?.params?.method || '').trim()
   const params = msg?.params?.params || undefined
   const sessionId = typeof msg?.params?.sessionId === 'string' ? msg.params.sessionId : undefined
+
+  // Opening a tab needs no attached tab: Aillium may start in a fresh browser.
+  if (method === 'Target.createTarget') {
+    const url = typeof params?.url === 'string' ? params.url : 'about:blank'
+    const tab = await chrome.tabs.create({ url, active: false })
+    if (!tab.id) throw new Error('Failed to create tab')
+    await new Promise((r) => setTimeout(r, 100))
+    await addToAilliumGroup(tab.id)
+    const attached = await attachTab(tab.id)
+    return { targetId: attached.targetId }
+  }
 
   const bySession = sessionId ? getTabBySessionId(sessionId) : null
   const targetId = typeof params?.targetId === 'string' ? params.targetId : undefined
@@ -689,15 +749,6 @@ async function handleForwardCdpCommand(msg) {
       // ignore
     }
     return await chrome.debugger.sendCommand(debuggee, 'Runtime.enable', params)
-  }
-
-  if (method === 'Target.createTarget') {
-    const url = typeof params?.url === 'string' ? params.url : 'about:blank'
-    const tab = await chrome.tabs.create({ url, active: false })
-    if (!tab.id) throw new Error('Failed to create tab')
-    await new Promise((r) => setTimeout(r, 100))
-    const attached = await attachTab(tab.id)
-    return { targetId: attached.targetId }
   }
 
   if (method === 'Target.closeTarget') {
@@ -824,7 +875,7 @@ async function onDebuggerDetach(source, reason) {
   setBadge(tabId, 'connecting')
   void chrome.action.setTitle({
     tabId,
-    title: 'OpenClaw Browser Relay: re-attaching after navigation…',
+    title: 'Aillium for Chrome: re-attaching after navigation…',
   })
 
   // Extend re-attach window from 2.5 s to ~7.7 s (5 attempts).
@@ -857,7 +908,7 @@ async function onDebuggerDetach(source, reason) {
         setBadge(tabId, 'connecting')
         void chrome.action.setTitle({
           tabId,
-          title: 'OpenClaw Browser Relay: attached, waiting for relay reconnect…',
+          title: 'Aillium for Chrome: attached, waiting for relay reconnect…',
         })
       }
       return
@@ -870,7 +921,7 @@ async function onDebuggerDetach(source, reason) {
   setBadge(tabId, 'off')
   void chrome.action.setTitle({
     tabId,
-    title: 'OpenClaw Browser Relay: re-attach failed (click to retry)',
+    title: 'Aillium for Chrome: re-attach failed (click to retry)',
   })
 }
 
@@ -944,7 +995,35 @@ chrome.tabs.onActivated.addListener(({ tabId }) => void whenReady(() => {
 
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.runtime.openOptionsPage()
+  chrome.contextMenus.create({ id: 'aillium-stop', title: 'Stop Aillium in this browser', contexts: ['action'] }, () => void chrome.runtime.lastError)
+  chrome.contextMenus.create({ id: 'aillium-resume', title: 'Let Aillium use this browser again', contexts: ['action'] }, () => void chrome.runtime.lastError)
 })
+
+/**
+ * Stop: let go of every tab and disconnect, and stay disconnected until the
+ * owner turns it back on. Aillium sees the browser go away and falls back.
+ */
+async function stopAillium() {
+  await chrome.storage.local.set({ ailliumStopped: true })
+  cancelReconnect()
+  for (const tabId of [...tabs.keys()]) {
+    await detachTab(tabId, 'stopped_by_user').catch(() => {})
+  }
+  const ws = relayWs
+  relayWs = null
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close(1000, 'stopped by user')
+}
+
+async function resumeAillium() {
+  await chrome.storage.local.set({ ailliumStopped: false })
+  cancelReconnect()
+  await ensureRelayConnection().catch(() => scheduleReconnect())
+}
+
+chrome.contextMenus.onClicked.addListener((info) => void whenReady(async () => {
+  if (info.menuItemId === 'aillium-stop') await stopAillium()
+  if (info.menuItemId === 'aillium-resume') await resumeAillium()
+}))
 
 // MV3 keepalive via chrome.alarms — more reliable than setInterval across
 // service worker restarts. Checks relay health and refreshes badges.
@@ -954,7 +1033,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== 'relay-keepalive') return
   await initPromise
 
-  if (tabs.size === 0) return
+  const settings = await getHostedSettings()
+  const stayConnected = settings.hosted && !settings.stopped
+  if (tabs.size === 0 && !stayConnected) return
 
   // Refresh badges (ephemeral in MV3).
   for (const [tabId, tab] of tabs.entries()) {
@@ -983,8 +1064,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // (fast), relay reconnect runs in background (slow, non-blocking).
 const initPromise = rehydrateState()
 
-initPromise.then(() => {
-  if (tabs.size > 0) {
+initPromise.then(async () => {
+  const settings = await getHostedSettings()
+  if (tabs.size > 0 || (settings.hosted && !settings.stopped)) {
     ensureRelayConnection().then(() => {
       reconnectAttempt = 0
       return reannounceAttachedTabs()
@@ -1004,6 +1086,30 @@ async function whenReady(fn) {
 // host_permissions and bypasses CORS preflight, so the options page
 // delegates token-validation requests here.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'ailliumStatus') {
+    void getHostedSettings().then((settings) =>
+      sendResponse({
+        hosted: settings.hosted,
+        stopped: settings.stopped,
+        connected: Boolean(relayWs && relayWs.readyState === WebSocket.OPEN),
+        tabs: [...tabs.values()].filter((t) => t.state === 'connected').length,
+      }),
+    )
+    return true
+  }
+  if (msg?.type === 'ailliumStop' || msg?.type === 'ailliumResume' || msg?.type === 'ailliumReconnect') {
+    void whenReady(async () => {
+      if (msg.type === 'ailliumStop') await stopAillium()
+      else if (msg.type === 'ailliumResume') await resumeAillium()
+      else {
+        const ws = relayWs
+        relayWs = null
+        if (ws && ws.readyState === WebSocket.OPEN) ws.close(1000, 'settings changed')
+        await resumeAillium()
+      }
+    }).then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }))
+    return true
+  }
   if (msg?.type !== 'relayCheck') return false
   const { url, token } = msg
   const headers = token ? { 'x-openclaw-relay-token': token } : {}
