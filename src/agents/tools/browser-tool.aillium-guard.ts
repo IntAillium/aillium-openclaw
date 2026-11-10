@@ -174,7 +174,9 @@ export class BrowserFinalActionGuard {
       return "click";
     }
     if (
-      (kind === "press" && /^(enter|numpadenter)$/i.test(String(request.key ?? ""))) ||
+      (kind === "press" &&
+        typeof request.key === "string" &&
+        /^(enter|numpadenter)$/i.test(request.key)) ||
       ((kind === "type" || kind === "fill") && request.submit === true)
     ) {
       return "submit";

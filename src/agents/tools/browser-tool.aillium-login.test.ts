@@ -106,8 +106,9 @@ describe("runAilliumLogin", () => {
       { sessionKey: "s", credential: "Tesco", passwordRef: "e2" },
       d,
     ).catch((err: Error) => err);
-    expect(String(error)).not.toContain(login.password);
-    expect(String(error)).toContain("[hidden]");
+    const message = error instanceof Error ? error.message : "";
+    expect(message).not.toContain(login.password);
+    expect(message).toContain("[hidden]");
   });
 });
 
