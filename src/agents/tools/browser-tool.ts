@@ -12,6 +12,7 @@ import {
   browserFocusTab,
   browserOpenTab,
   browserProfiles,
+  browserSnapshot,
   browserStart,
   browserStatus,
   browserStop,
@@ -26,11 +27,22 @@ import {
 } from "../../browser/session-tab-registry.js";
 import { loadConfig } from "../../config/config.js";
 import {
+  type BrowserProxyRequest,
   executeActAction,
   executeConsoleAction,
   executeSnapshotAction,
   executeTabsAction,
+  snapshotRefsInfo,
+  type SnapshotRefsInfo,
 } from "./browser-tool.actions.js";
+import {
+  approvalNeededMessage,
+  BrowserFinalActionGuard,
+  consumeBrowserApproval,
+  flattenActRequests,
+  isAilliumBrowserGuardEnabled,
+} from "./browser-tool.aillium-guard.js";
+import { runAilliumLogin } from "./browser-tool.aillium-login.js";
 import { BrowserToolSchema } from "./browser-tool.schema.js";
 import { type AnyAgentTool, imageResultFromFile, jsonResult, readStringParam } from "./common.js";
 import { callGatewayTool } from "./gateway.js";
@@ -299,6 +311,8 @@ export function createBrowserTool(opts?: {
   agentSessionKey?: string;
 }): AnyAgentTool {
   const targetDefault = opts?.sandboxBridgeUrl ? "sandbox" : "host";
+  // Remembers what each ref on the page says, so a click on "Pay now" is recognized.
+  const finalActionGuard = new BrowserFinalActionGuard();
   const hostHint =
     opts?.allowHostControl === false ? "Host target blocked by policy." : "Host target allowed.";
   return {
@@ -312,6 +326,7 @@ export function createBrowserTool(opts?: {
       "When using refs from snapshot (e.g. e12), keep the same tab: prefer passing targetId from the snapshot response into subsequent actions (act/click/type/etc).",
       'For stable, self-resolving refs across calls, use snapshot with refs="aria" (Playwright aria-ref ids). Default refs="role" are role+name-based.',
       "Use snapshot+act for UI automation. Avoid act:wait by default; use only in exceptional cases when no reliable UI state exists.",
+      'To sign in with a login the owner saved in Aillium, use action="login" with credential=<login name>, passwordRef, and usernameRef/submitRef from a snapshot. Never ask for or type passwords yourself.',
       `target selects browser location (sandbox|host|node). Default: ${targetDefault}.`,
       hostHint,
     ].join(" "),
@@ -510,7 +525,46 @@ export function createBrowserTool(opts?: {
             baseUrl,
             profile,
             proxyRequest,
+            onSnapshot: (info) => finalActionGuard.rememberSnapshot(info.targetId, info.refs),
           });
+        case "login": {
+          const runAct = async (request: Record<string, unknown>) => {
+            // The sign-in button gets the same check, so submitRef cannot press "Pay now".
+            if (request.kind === "click" && isAilliumBrowserGuardEnabled()) {
+              const blocked = await checkFinalAction({
+                guard: finalActionGuard,
+                request,
+                sessionKey: opts?.agentSessionKey,
+                baseUrl,
+                profile,
+                proxyRequest,
+              });
+              if (blocked) {
+                throw new Error(blocked);
+              }
+            }
+            return await runRawAct({ request, baseUrl, profile, proxyRequest });
+          };
+          const result = await runAilliumLogin(
+            {
+              sessionKey: opts?.agentSessionKey,
+              credential: readStringParam(params, "credential"),
+              usernameRef: readStringParam(params, "usernameRef"),
+              passwordRef: readStringParam(params, "passwordRef"),
+              submitRef: readStringParam(params, "submitRef"),
+              targetId: readStringParam(params, "targetId"),
+            },
+            {
+              readPage: async (targetId) => {
+                const info = await readPageRefs({ targetId, baseUrl, profile, proxyRequest });
+                finalActionGuard.rememberSnapshot(info.targetId, info.refs);
+                return info;
+              },
+              act: runAct,
+            },
+          );
+          return jsonResult(result);
+        }
         case "screenshot": {
           const targetId = readStringParam(params, "targetId");
           const fullPage = Boolean(params.fullPage);
@@ -668,6 +722,20 @@ export function createBrowserTool(opts?: {
           if (!request) {
             throw new Error("request required");
           }
+          if (isAilliumBrowserGuardEnabled()) {
+            const blocked = await checkFinalAction({
+              guard: finalActionGuard,
+              request: request as Record<string, unknown>,
+              element: readStringParam(params, "element"),
+              sessionKey: opts?.agentSessionKey,
+              baseUrl,
+              profile,
+              proxyRequest,
+            });
+            if (blocked) {
+              return { content: [{ type: "text" as const, text: blocked }], details: { blocked } };
+            }
+          }
           return await executeActAction({
             request,
             baseUrl,
@@ -680,4 +748,86 @@ export function createBrowserTool(opts?: {
       }
     },
   };
+}
+
+async function readPageRefs(params: {
+  targetId?: string;
+  selector?: string;
+  baseUrl?: string;
+  profile?: string;
+  proxyRequest: BrowserProxyRequest | null;
+}): Promise<SnapshotRefsInfo> {
+  const query = {
+    format: "ai" as const,
+    interactive: true,
+    maxChars: 4_000,
+    ...(params.targetId ? { targetId: params.targetId } : {}),
+    ...(params.selector ? { selector: params.selector } : {}),
+  };
+  const snapshot = params.proxyRequest
+    ? ((await params.proxyRequest({
+        method: "GET",
+        path: "/snapshot",
+        profile: params.profile,
+        query,
+      })) as Parameters<typeof snapshotRefsInfo>[0])
+    : await browserSnapshot(params.baseUrl, { ...query, profile: params.profile });
+  return snapshotRefsInfo(snapshot);
+}
+
+async function runRawAct(params: {
+  request: Record<string, unknown>;
+  baseUrl?: string;
+  profile?: string;
+  proxyRequest: BrowserProxyRequest | null;
+}): Promise<unknown> {
+  return params.proxyRequest
+    ? await params.proxyRequest({
+        method: "POST",
+        path: "/act",
+        profile: params.profile,
+        body: params.request,
+      })
+    : await browserAct(params.baseUrl, params.request as Parameters<typeof browserAct>[1], {
+        profile: params.profile,
+      });
+}
+
+/**
+ * Inside Aillium, a final step (pay, order, submit, send, delete) needs the owner's
+ * approval. Returns the message to give the agent when the step is held back.
+ */
+async function checkFinalAction(params: {
+  guard: BrowserFinalActionGuard;
+  request: Record<string, unknown>;
+  element?: string;
+  sessionKey?: string;
+  baseUrl?: string;
+  profile?: string;
+  proxyRequest: BrowserProxyRequest | null;
+}): Promise<string | null> {
+  const { guard, baseUrl, profile, proxyRequest } = params;
+  for (const step of flattenActRequests(params.request)) {
+    const targetId = typeof step.targetId === "string" ? step.targetId : undefined;
+    let scopedRefs: SnapshotRefsInfo["refs"] | undefined;
+    try {
+      if (guard.needsSnapshot(step)) {
+        const info = await readPageRefs({ targetId, baseUrl, profile, proxyRequest });
+        guard.rememberSnapshot(info.targetId, info.refs);
+      }
+      // A click by CSS selector has no ref; judge it by what is inside that element.
+      if (step.kind === "click" && !step.ref && typeof step.selector === "string") {
+        const selector = step.selector;
+        scopedRefs = (await readPageRefs({ targetId, selector, baseUrl, profile, proxyRequest }))
+          .refs;
+      }
+    } catch {
+      // If the page cannot be read, judge the step by what we already know.
+    }
+    const action = guard.inspect(step, params.element, scopedRefs);
+    if (action && !consumeBrowserApproval(params.sessionKey, action.category)) {
+      return approvalNeededMessage(action);
+    }
+  }
+  return null;
 }
