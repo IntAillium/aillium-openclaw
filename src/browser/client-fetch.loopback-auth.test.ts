@@ -154,6 +154,24 @@ describe("fetchBrowserJson loopback auth", () => {
     });
   });
 
+  it("lets the agent retry once when an in-process browser call times out", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.dispatch.mockImplementationOnce(() => new Promise(() => {}));
+      const pending = fetchBrowserJson<{ ok: boolean }>("/snapshot?targetId=T1", {
+        timeoutMs: 20_000,
+      });
+      const assertion = expectThrownBrowserFetchError(() => pending, {
+        contains: ["did not finish /snapshot within 20s", "Retry this browser step once"],
+        omits: ["Do NOT retry the browser tool", "Restart the OpenClaw gateway"],
+      });
+      await vi.advanceTimersByTimeAsync(20_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("surfaces 429 from HTTP URL as rate-limit error with no-retry hint", async () => {
     const response = new Response("max concurrent sessions exceeded", { status: 429 });
     const text = vi.spyOn(response, "text");

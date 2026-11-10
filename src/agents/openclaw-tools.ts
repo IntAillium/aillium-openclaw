@@ -114,6 +114,7 @@ export function createOpenClawTools(
     config: options?.config,
     sandboxed: options?.sandboxed,
     runtimeWebSearch: runtimeWebTools?.search,
+    agentDir: options?.agentDir,
   });
   const webFetchTool = createWebFetchTool({
     config: options?.config,

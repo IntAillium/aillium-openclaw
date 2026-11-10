@@ -6,6 +6,7 @@ import { logVerbose } from "../../globals.js";
 import type { RuntimeWebSearchMetadata } from "../../secrets/runtime-web-tools.js";
 import { wrapWebContent } from "../../security/external-content.js";
 import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
+import { resolveApiKeyForProvider } from "../model-auth.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readNumberParam, readStringArrayParam, readStringParam } from "./common.js";
 import { withTrustedWebToolsEndpoint } from "./web-guarded-fetch.js";
@@ -1888,10 +1889,32 @@ async function runWebSearch(params: {
   return payload;
 }
 
+/**
+ * Gemini search can reuse the agent's Google model credential, so a gateway
+ * that already talks to Gemini needs no separate GEMINI_API_KEY to search.
+ */
+async function resolveGeminiAuthProfileKey(params: {
+  config?: OpenClawConfig;
+  agentDir?: string;
+}): Promise<string | undefined> {
+  try {
+    const resolved = await resolveApiKeyForProvider({
+      provider: "google",
+      cfg: params.config,
+      agentDir: params.agentDir,
+    });
+    return normalizeApiKey(resolved.apiKey) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function createWebSearchTool(options?: {
   config?: OpenClawConfig;
   sandboxed?: boolean;
   runtimeWebSearch?: RuntimeWebSearchMetadata;
+  /** Agent dir whose auth profiles may supply a Google key for Gemini search. */
+  agentDir?: string;
 }): AnyAgentTool | null {
   const search = resolveSearchConfig(options?.config);
   if (!resolveSearchEnabled({ search, sandboxed: options?.sandboxed })) {
@@ -1948,7 +1971,11 @@ export function createWebSearchTool(options?: {
             : provider === "kimi"
               ? resolveKimiApiKey(kimiConfig)
               : provider === "gemini"
-                ? resolveGeminiApiKey(geminiConfig)
+                ? (resolveGeminiApiKey(geminiConfig) ??
+                  (await resolveGeminiAuthProfileKey({
+                    config: options?.config,
+                    agentDir: options?.agentDir,
+                  })))
                 : resolveSearchApiKey(search);
 
       if (!apiKey) {
