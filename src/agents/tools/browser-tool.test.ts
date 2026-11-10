@@ -794,3 +794,113 @@ describe("browser tool act stale target recovery", () => {
     expect(browserActionsMocks.browserAct).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("browser tool Aillium approval gate", () => {
+  registerBrowserToolAfterEachReset();
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    const guard = await import("./browser-tool.aillium-guard.js");
+    guard.resetBrowserApprovalGrantsForTest();
+  });
+
+  const checkoutSnapshot = {
+    ok: true,
+    format: "ai",
+    targetId: "t1",
+    url: "https://shop.example.com/checkout",
+    snapshot: "checkout",
+    refs: {
+      e1: { role: "textbox", name: "Card holder" },
+      e2: { role: "button", name: "Pay £84.20" },
+      e3: { role: "link", name: "Purchase history" },
+    },
+  };
+
+  it("holds back a click on a pay button until the owner approves", async () => {
+    vi.stubEnv("AILLIUM_BROWSER_APPROVALS", "on");
+    browserClientMocks.browserSnapshot.mockResolvedValueOnce(checkoutSnapshot);
+    const tool = createBrowserTool({ agentSessionKey: "agent:main:task-1" });
+    await tool.execute?.("call-1", { action: "snapshot", snapshotFormat: "ai" });
+
+    const blocked = await tool.execute?.("call-2", {
+      action: "act",
+      request: { kind: "click", ref: "e2", targetId: "t1" },
+    });
+    expect(browserActionsMocks.browserAct).not.toHaveBeenCalled();
+    const text = (blocked?.content?.[0] as { text?: string } | undefined)?.text ?? "";
+    expect(text).toContain("RUNTIME_APPROVAL_REQUEST:");
+    expect(text).toContain("Pay £84.20");
+
+    const { grantBrowserApproval } = await import("./browser-tool.aillium-guard.js");
+    grantBrowserApproval({ sessionKey: "agent:main:task-1", category: "payment" });
+    await tool.execute?.("call-3", {
+      action: "act",
+      request: { kind: "click", ref: "e2", targetId: "t1" },
+    });
+    expect(browserActionsMocks.browserAct).toHaveBeenCalledTimes(1);
+
+    // The grant is used up by that one click.
+    await tool.execute?.("call-4", {
+      action: "act",
+      request: { kind: "click", ref: "e2", targetId: "t1" },
+    });
+    expect(browserActionsMocks.browserAct).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets ordinary clicks through", async () => {
+    vi.stubEnv("AILLIUM_BROWSER_APPROVALS", "on");
+    browserClientMocks.browserSnapshot.mockResolvedValueOnce(checkoutSnapshot);
+    const tool = createBrowserTool({ agentSessionKey: "agent:main:task-1" });
+    await tool.execute?.("call-1", { action: "snapshot", snapshotFormat: "ai" });
+    await tool.execute?.("call-2", {
+      action: "act",
+      request: { kind: "click", ref: "e3", targetId: "t1" },
+    });
+    expect(browserActionsMocks.browserAct).toHaveBeenCalledTimes(1);
+  });
+
+  it("looks at the page itself when the agent clicks a ref it never saw", async () => {
+    vi.stubEnv("AILLIUM_BROWSER_APPROVALS", "on");
+    browserClientMocks.browserSnapshot.mockResolvedValueOnce(checkoutSnapshot);
+    const tool = createBrowserTool({ agentSessionKey: "agent:main:task-1" });
+    await tool.execute?.("call-1", {
+      action: "act",
+      kind: "click",
+      ref: "e2",
+      element: "Next",
+    });
+    expect(browserClientMocks.browserSnapshot).toHaveBeenCalledTimes(1);
+    expect(browserActionsMocks.browserAct).not.toHaveBeenCalled();
+  });
+
+  it("checks every step of a batch", async () => {
+    vi.stubEnv("AILLIUM_BROWSER_APPROVALS", "on");
+    browserClientMocks.browserSnapshot.mockResolvedValueOnce(checkoutSnapshot);
+    const tool = createBrowserTool({ agentSessionKey: "agent:main:task-1" });
+    await tool.execute?.("call-1", { action: "snapshot", snapshotFormat: "ai" });
+    await tool.execute?.("call-2", {
+      action: "act",
+      request: {
+        kind: "batch",
+        targetId: "t1",
+        actions: [
+          { kind: "type", ref: "e1", text: "A Person" },
+          { kind: "click", ref: "e2" },
+        ],
+      },
+    });
+    expect(browserActionsMocks.browserAct).not.toHaveBeenCalled();
+  });
+
+  it("does nothing outside Aillium", async () => {
+    vi.stubEnv("AILLIUM_BROWSER_APPROVALS", "off");
+    browserClientMocks.browserSnapshot.mockResolvedValueOnce(checkoutSnapshot);
+    const tool = createBrowserTool({ agentSessionKey: "agent:main:task-1" });
+    await tool.execute?.("call-1", { action: "snapshot", snapshotFormat: "ai" });
+    await tool.execute?.("call-2", {
+      action: "act",
+      request: { kind: "click", ref: "e2", targetId: "t1" },
+    });
+    expect(browserActionsMocks.browserAct).toHaveBeenCalledTimes(1);
+  });
+});
