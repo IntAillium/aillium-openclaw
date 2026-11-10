@@ -6,7 +6,7 @@ import { loadConfig } from "../../config/config.js";
 import { wrapExternalContent } from "../../security/external-content.js";
 import { imageResultFromFile, jsonResult } from "./common.js";
 
-type BrowserProxyRequest = (opts: {
+export type BrowserProxyRequest = (opts: {
   method: string;
   path: string;
   query?: Record<string, string | number | boolean | undefined>;
@@ -123,11 +123,32 @@ export async function executeTabsAction(params: {
   return formatTabsToolResult(tabs);
 }
 
+export type SnapshotRefsInfo = {
+  targetId?: string;
+  url?: string;
+  refs: Record<string, { role: string; name?: string }>;
+};
+
+/** The labels behind each ref in a snapshot, so later clicks can be judged by what they press. */
+export function snapshotRefsInfo(
+  snapshot: Awaited<ReturnType<typeof browserSnapshot>>,
+): SnapshotRefsInfo {
+  if (snapshot.format === "ai") {
+    return { targetId: snapshot.targetId, url: snapshot.url, refs: snapshot.refs ?? {} };
+  }
+  const refs: SnapshotRefsInfo["refs"] = {};
+  for (const node of snapshot.nodes ?? []) {
+    refs[node.ref] = { role: node.role, name: node.name };
+  }
+  return { targetId: snapshot.targetId, url: snapshot.url, refs };
+}
+
 export async function executeSnapshotAction(params: {
   input: Record<string, unknown>;
   baseUrl?: string;
   profile?: string;
   proxyRequest: BrowserProxyRequest | null;
+  onSnapshot?: (info: SnapshotRefsInfo) => void;
 }): Promise<AgentToolResult<unknown>> {
   const { input, baseUrl, profile, proxyRequest } = params;
   const snapshotDefaults = loadConfig().browser?.snapshotDefaults;
@@ -193,6 +214,7 @@ export async function executeSnapshotAction(params: {
         ...snapshotQuery,
         profile,
       });
+  params.onSnapshot?.(snapshotRefsInfo(snapshot));
   if (snapshot.format === "ai") {
     const extractedText = snapshot.snapshot ?? "";
     const wrappedSnapshot = wrapExternalContent(extractedText, {

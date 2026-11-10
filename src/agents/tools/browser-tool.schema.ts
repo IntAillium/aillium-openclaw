@@ -32,6 +32,7 @@ const BROWSER_TOOL_ACTIONS = [
   "upload",
   "dialog",
   "act",
+  "login",
 ] as const;
 
 const BROWSER_TARGETS = ["sandbox", "host", "node"] as const;
@@ -135,4 +136,9 @@ export const BrowserToolSchema = Type.Object({
   loadState: Type.Optional(Type.String()),
   fn: Type.Optional(Type.String()),
   request: Type.Optional(BrowserActSchema),
+  // login (Aillium saved logins): the password is filled in for the agent, never shown to it
+  credential: Type.Optional(Type.String()),
+  usernameRef: Type.Optional(Type.String()),
+  passwordRef: Type.Optional(Type.String()),
+  submitRef: Type.Optional(Type.String()),
 });

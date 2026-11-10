@@ -160,3 +160,55 @@ describe("Aillium browser observer HTTP route", () => {
     });
   });
 });
+
+describe("Aillium browser approval grant route", () => {
+  beforeEach(() => {
+    vi.stubEnv("OPENCLAW_GATEWAY_TOKEN", "runtime-secret");
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    const guard = await import("../agents/tools/browser-tool.aillium-guard.js");
+    guard.resetBrowserApprovalGrantsForTest();
+  });
+
+  it("rejects callers without the runtime token", async () => {
+    const response = createResponse();
+    await handleAilliumBrowserRequest(
+      createRequest({ method: "POST", body: JSON.stringify({ sessionKey: "s1" }) }),
+      response,
+      "/api/aillium/browser/approval-grant",
+    );
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("lets the session's next final step of that kind go through once", async () => {
+    const guard = await import("../agents/tools/browser-tool.aillium-guard.js");
+    const response = createResponse();
+    await handleAilliumBrowserRequest(
+      createRequest({
+        method: "POST",
+        headers: { "x-aillium-runtime-token": "runtime-secret" },
+        body: JSON.stringify({ sessionKey: "agent:main:task-1", category: "payment" }),
+      }),
+      response,
+      "/api/aillium/browser/approval-grant",
+    );
+    expect(response.statusCode).toBe(200);
+    expect(guard.consumeBrowserApproval("agent:main:task-1", "payment")).toBe(true);
+    expect(guard.consumeBrowserApproval("agent:main:task-1", "payment")).toBe(false);
+  });
+
+  it("rejects an unknown kind", async () => {
+    const response = createResponse();
+    await handleAilliumBrowserRequest(
+      createRequest({
+        method: "POST",
+        headers: { authorization: "Bearer runtime-secret" },
+        body: JSON.stringify({ sessionKey: "s1", category: "everything" }),
+      }),
+      response,
+      "/api/aillium/browser/approval-grant",
+    );
+    expect(response.statusCode).toBe(400);
+  });
+});

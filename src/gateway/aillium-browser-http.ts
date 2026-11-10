@@ -1,6 +1,7 @@
 import { readFile, unlink } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
+import { grantBrowserApproval } from "../agents/tools/browser-tool.aillium-guard.js";
 import {
   createBrowserControlContext,
   startBrowserControlServiceFromConfig,
@@ -10,7 +11,21 @@ import { readJsonBodyOrError, sendMethodNotAllowed } from "./http-common.js";
 import { getBearerToken } from "./http-utils.js";
 
 const AILLIUM_BROWSER_CAPTURE_PATH = "/api/aillium/browser/capture";
+const AILLIUM_BROWSER_APPROVAL_GRANT_PATH = "/api/aillium/browser/approval-grant";
 const BODY_LIMIT_BYTES = 16 * 1024;
+
+// Aillium Core calls this after the owner approves a final browser step, so the
+// agent's next attempt at that step goes through once.
+const approvalGrantBodySchema = z.object({
+  sessionKey: z.string().min(1).max(512),
+  category: z.enum(["payment", "delete", "send", "submit", "any"]).optional(),
+  ttlMs: z
+    .number()
+    .int()
+    .min(1_000)
+    .max(2 * 60 * 60_000)
+    .optional(),
+});
 
 const captureBodySchema = z.object({
   profile: z.string().min(1).max(128).optional(),
@@ -44,11 +59,41 @@ function isAuthorized(req: IncomingMessage): boolean {
   return configuredTokens.includes(presented);
 }
 
+async function handleApprovalGrant(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  if (req.method !== "POST") {
+    sendMethodNotAllowed(res, "POST");
+    return true;
+  }
+  if (!isAuthorized(req)) {
+    sendJson(res, 401, { error: "Unauthorized" });
+    return true;
+  }
+  const rawBody = await readJsonBodyOrError(req, res, BODY_LIMIT_BYTES);
+  if (rawBody === undefined) {
+    return true;
+  }
+  const parsed = approvalGrantBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: "sessionKey is required; category must be a known kind" });
+    return true;
+  }
+  grantBrowserApproval({
+    sessionKey: parsed.data.sessionKey,
+    category: parsed.data.category ?? "any",
+    ttlMs: parsed.data.ttlMs,
+  });
+  sendJson(res, 200, { ok: true });
+  return true;
+}
+
 export async function handleAilliumBrowserRequest(
   req: IncomingMessage,
   res: ServerResponse,
   requestPath: string,
 ): Promise<boolean> {
+  if (requestPath === AILLIUM_BROWSER_APPROVAL_GRANT_PATH) {
+    return await handleApprovalGrant(req, res);
+  }
   if (requestPath !== AILLIUM_BROWSER_CAPTURE_PATH) {
     return false;
   }
