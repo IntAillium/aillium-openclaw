@@ -13,6 +13,7 @@ import { CANVAS_WS_PATH, handleA2uiHttpRequest } from "../canvas-host/a2ui.js";
 import type { CanvasHostHandler } from "../canvas-host/server.js";
 import { loadConfig } from "../config/config.js";
 import { handleAilliumBrowserRequest } from "./aillium-browser-http.js";
+import { handleAilliumChromeUpgrade } from "./aillium-chrome-bridge.js";
 import { handleAilliumMcpHttpRequest } from "./aillium-mcp-http.js";
 import { type AuthRateLimiter } from "./auth-rate-limit.js";
 import {
@@ -564,6 +565,10 @@ export function attachGatewayUpgradeHandler(opts: {
   const { httpServer, wss, canvasHost, clients, resolvedAuth, rateLimiter } = opts;
   httpServer.on("upgrade", (req, socket, head) => {
     void (async () => {
+      // Aillium for Chrome: checked by its pairing code, not the gateway token.
+      if (await handleAilliumChromeUpgrade(req, socket, head)) {
+        return;
+      }
       const scopedCanvas = normalizeCanvasScopedUrl(req.url ?? "/");
       if (scopedCanvas.malformedScopedPath) {
         writeUpgradeAuthFailure(socket, { ok: false, reason: "unauthorized" });

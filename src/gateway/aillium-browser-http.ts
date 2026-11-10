@@ -7,6 +7,7 @@ import {
   startBrowserControlServiceFromConfig,
 } from "../browser/control-service.js";
 import { createBrowserRouteDispatcher } from "../browser/routes/dispatcher.js";
+import { AILLIUM_CHROME_STATUS_PATH, sendAilliumChromeStatus } from "./aillium-chrome-bridge.js";
 import { readJsonBodyOrError, sendMethodNotAllowed } from "./http-common.js";
 import { getBearerToken } from "./http-utils.js";
 
@@ -150,6 +151,18 @@ export async function handleAilliumBrowserRequest(
   }
   if (requestPath === AILLIUM_BROWSER_OVERLAY_PATH) {
     return await handleOverlay(req, res);
+  }
+  if (requestPath === AILLIUM_CHROME_STATUS_PATH) {
+    if (req.method !== "GET") {
+      sendMethodNotAllowed(res, "GET");
+      return true;
+    }
+    if (!isAuthorized(req)) {
+      sendJson(res, 401, { error: "Unauthorized" });
+      return true;
+    }
+    sendAilliumChromeStatus(res);
+    return true;
   }
   if (requestPath !== AILLIUM_BROWSER_CAPTURE_PATH) {
     return false;

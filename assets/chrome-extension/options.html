@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OpenClaw Browser Relay</title>
+    <title>Aillium for Chrome</title>
     <style>
       :root {
         color-scheme: light dark;
-        --accent: #ff5a36;
+        --accent: #7c5cff;
         --panel: color-mix(in oklab, canvas 92%, canvasText 8%);
         --border: color-mix(in oklab, canvasText 18%, transparent);
         --muted: color-mix(in oklab, canvasText 70%, transparent);
@@ -158,26 +158,43 @@
           <img src="icons/icon128.png" alt="" />
         </div>
         <div>
-          <h1>OpenClaw Browser Relay</h1>
-          <p class="subtitle">Click the toolbar button on a tab to attach / detach.</p>
+          <h1>Aillium for Chrome</h1>
+          <p class="subtitle">Let Aillium work in this Chrome, with your logins, while you watch.</p>
         </div>
       </header>
 
       <div class="grid">
         <div class="card">
-          <h2>Getting started</h2>
+          <h2>Connect to Aillium</h2>
           <p>
-            If you see a red <code>!</code> badge on the extension icon, the relay server is not reachable.
-            Start OpenClaw’s browser relay on this machine (Gateway or node host), then click the toolbar button again.
+            In Aillium, open Settings, then <b>Connect Chrome</b>, and create a pairing code. Paste it here.
+            Aillium opens its tabs in a purple <b>Aillium</b> tab group, shows on each page whether it is in
+            control, and stops before anything final (paying, sending, deleting) until you approve.
           </p>
-          <p>
-            Full guide (install, remote Gateway, security): <a href="https://docs.openclaw.ai/tools/chrome-extension" target="_blank" rel="noreferrer">docs.openclaw.ai/tools/chrome-extension</a>
-          </p>
+          <label for="pairing" style="margin-top: 12px">Pairing code</label>
+          <div class="row">
+            <input id="pairing" type="password" autocomplete="off" style="width: min(520px, 100%)" />
+          </div>
+          <label for="server" style="margin-top: 10px">Aillium address</label>
+          <div class="row">
+            <input id="server" autocomplete="off" style="width: min(520px, 100%)" placeholder="https://runtime.aillium.cloud" />
+            <button id="connect" type="button">Save and connect</button>
+          </div>
+          <div class="status" id="hosted-status"></div>
+          <div class="row" style="margin-top: 12px">
+            <button id="stop" type="button">Stop Aillium in this browser</button>
+            <button id="resume" type="button">Let Aillium use this browser</button>
+          </div>
+          <div class="hint">
+            Stop lets go of every tab and disconnects until you turn it back on. You can also right-click the
+            toolbar icon. Clicking the icon on a tab shares that tab with Aillium.
+          </div>
         </div>
 
-        <div class="card">
-          <h2>Relay connection</h2>
-          <label for="port">Port</label>
+        <details class="card">
+          <summary><b>Advanced: local OpenClaw relay</b></summary>
+          <p>Only for running OpenClaw on this computer. Leave the pairing code empty to use it.</p>
+          <label for="port" style="margin-top: 10px">Port</label>
           <div class="row">
             <input id="port" inputmode="numeric" pattern="[0-9]*" />
           </div>
@@ -188,10 +205,9 @@
           </div>
           <div class="hint">
             Default port: <code>18792</code>. Extension connects to: <code id="relay-url">http://127.0.0.1:&lt;port&gt;/</code>.
-            Gateway token must match <code>gateway.auth.token</code> (or <code>OPENCLAW_GATEWAY_TOKEN</code>).
           </div>
           <div class="status" id="status"></div>
-        </div>
+        </details>
       </div>
 
       <script type="module" src="options.js"></script>
