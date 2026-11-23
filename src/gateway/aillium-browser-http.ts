@@ -1,4 +1,3 @@
-import { operatorControlSchema, OperatorControlError, runOperatorControl } from "../browser/operator-control.js";
 import { readFile, unlink } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
@@ -7,6 +6,11 @@ import {
   createBrowserControlContext,
   startBrowserControlServiceFromConfig,
 } from "../browser/control-service.js";
+import {
+  operatorControlSchema,
+  OperatorControlError,
+  runOperatorControl,
+} from "../browser/operator-control.js";
 import { createBrowserRouteDispatcher } from "../browser/routes/dispatcher.js";
 import { AILLIUM_CHROME_STATUS_PATH, sendAilliumChromeStatus } from "./aillium-chrome-bridge.js";
 import { readJsonBodyOrError, sendMethodNotAllowed } from "./http-common.js";
@@ -166,7 +170,10 @@ export async function handleAilliumBrowserRequest(
     sendAilliumChromeStatus(res);
     return true;
   }
-  if (requestPath !== AILLIUM_BROWSER_CAPTURE_PATH && requestPath !== "/api/aillium/browser/control") {
+  if (
+    requestPath !== AILLIUM_BROWSER_CAPTURE_PATH &&
+    requestPath !== "/api/aillium/browser/control"
+  ) {
     return false;
   }
   if (req.method !== "POST") {
@@ -262,7 +269,8 @@ export async function handleAilliumBrowserRequest(
   } catch (error) {
     sendJson(res, error instanceof OperatorControlError ? error.status : 503, {
       available: false,
-      error: error instanceof OperatorControlError ? error.message : "Browser connection unavailable",
+      error:
+        error instanceof OperatorControlError ? error.message : "Browser connection unavailable",
     });
     return true;
   }
