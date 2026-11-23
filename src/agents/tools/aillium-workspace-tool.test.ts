@@ -40,7 +40,7 @@ describe("aillium_workspace tool", () => {
     expect((init.headers as Record<string, string>)["x-aillium-runtime-token"]).toBe(
       "runtime-token",
     );
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(JSON.parse(init.body as string)).toEqual({
       sessionKey: "agent:main:s1",
       action: "doc_create",
       params: { title: "Plan", content: "# Plan" },
