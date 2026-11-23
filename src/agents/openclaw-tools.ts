@@ -7,6 +7,7 @@ import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import type { SpawnedToolContext } from "./spawned-context.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
+import { createAilliumWorkspaceTool } from "./tools/aillium-workspace-tool.js";
 import { createBrowserTool } from "./tools/browser-tool.js";
 import { createCanvasTool } from "./tools/canvas-tool.js";
 import type { AnyAgentTool } from "./tools/common.js";
@@ -137,6 +138,10 @@ export function createOpenClawTools(
         requireExplicitTarget: options?.requireExplicitMessageTarget,
         requesterSenderId: options?.requesterSenderId ?? undefined,
       });
+  // Lark Drive, Lark Tasks, calendar and departments, through Aillium Core.
+  const ailliumWorkspaceTool = createAilliumWorkspaceTool({
+    agentSessionKey: options?.agentSessionKey,
+  });
   const tools: AnyAgentTool[] = [
     createBrowserTool({
       sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
@@ -211,6 +216,7 @@ export function createOpenClawTools(
       config: options?.config,
       sandboxed: options?.sandboxed,
     }),
+    ...(ailliumWorkspaceTool ? [ailliumWorkspaceTool] : []),
     ...(webSearchTool ? [webSearchTool] : []),
     ...(webFetchTool ? [webFetchTool] : []),
     ...(imageTool ? [imageTool] : []),

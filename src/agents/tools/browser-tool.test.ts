@@ -31,6 +31,7 @@ vi.mock("../../browser/client.js", () => browserClientMocks);
 
 const browserActionsMocks = vi.hoisted(() => ({
   browserAct: vi.fn(async () => ({ ok: true })),
+  browserAilliumOverlay: vi.fn(async () => ({ ok: true, applied: true })),
   browserArmDialog: vi.fn(async () => ({ ok: true })),
   browserArmFileChooser: vi.fn(async () => ({ ok: true })),
   browserConsoleMessages: vi.fn(async () => ({
@@ -845,6 +846,41 @@ describe("browser tool Aillium approval gate", () => {
       request: { kind: "click", ref: "e2", targetId: "t1" },
     });
     expect(browserActionsMocks.browserAct).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows who is in control on the page, and a decision when a step is held", async () => {
+    vi.stubEnv("AILLIUM_BROWSER_APPROVALS", "on");
+    browserClientMocks.browserSnapshot.mockResolvedValueOnce(checkoutSnapshot);
+    const tool = createBrowserTool({ agentSessionKey: "agent:main:task-1" });
+    await tool.execute?.("call-1", { action: "snapshot", snapshotFormat: "ai" });
+    await tool.execute?.("call-2", {
+      action: "act",
+      request: { kind: "click", ref: "e3", targetId: "t1" },
+    });
+    // Shown once, not before every step.
+    expect(browserActionsMocks.browserAilliumOverlay).toHaveBeenCalledTimes(1);
+    expect(browserActionsMocks.browserAilliumOverlay).toHaveBeenCalledWith(undefined, {
+      state: "control",
+      message: undefined,
+      profile: undefined,
+    });
+
+    await tool.execute?.("call-3", {
+      action: "act",
+      request: { kind: "click", ref: "e2", targetId: "t1" },
+    });
+    expect(browserActionsMocks.browserAilliumOverlay).toHaveBeenLastCalledWith(undefined, {
+      state: "decision",
+      message: "Approve: Pay £84.20",
+      profile: undefined,
+    });
+
+    // After a decision, the next step shows "in control" again.
+    await tool.execute?.("call-4", { action: "snapshot", snapshotFormat: "ai" });
+    expect(browserActionsMocks.browserAilliumOverlay).toHaveBeenLastCalledWith(
+      undefined,
+      expect.objectContaining({ state: "control" }),
+    );
   });
 
   it("lets ordinary clicks through", async () => {

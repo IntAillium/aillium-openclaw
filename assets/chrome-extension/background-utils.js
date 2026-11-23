@@ -41,7 +41,12 @@ export async function buildRelayWsUrl(port, gatewayToken) {
 
 export function isRetryableReconnectError(err) {
   const message = err instanceof Error ? err.message : String(err || "");
-  if (message.includes("Missing gatewayToken")) {
+  if (
+    message.includes("Missing gatewayToken") ||
+    message.includes("Missing pairing code") ||
+    message.includes("Invalid Aillium address") ||
+    message.includes("Aillium is stopped")
+  ) {
     return false;
   }
   return true;
@@ -61,4 +66,35 @@ export function isLastRemainingTab(allTabs, tabIdToClose) {
     return true;
   }
   return allTabs.filter((tab) => tab && tab.id !== tabIdToClose).length === 0;
+}
+
+export const DEFAULT_AILLIUM_SERVER = "https://runtime.aillium.cloud";
+
+/**
+ * Aillium for Chrome: the WSS address the extension dials out to, carrying
+ * the pairing code from Aillium Settings. https only, except for a local test.
+ */
+export function hostedConnectUrl(serverUrl, pairingCode) {
+  const code = String(pairingCode || "").trim();
+  if (!code) {
+    throw new Error("Missing pairing code");
+  }
+  let url;
+  try {
+    url = new URL(String(serverUrl || DEFAULT_AILLIUM_SERVER).trim());
+  } catch {
+    throw new Error("Invalid Aillium address");
+  }
+  const local = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  if (url.protocol === "https:" || url.protocol === "wss:") {
+    url.protocol = "wss:";
+  } else if (local && (url.protocol === "http:" || url.protocol === "ws:")) {
+    url.protocol = "ws:";
+  } else {
+    throw new Error("Invalid Aillium address: it must start with https://");
+  }
+  url.pathname = "/api/aillium/chrome/connect";
+  url.search = `?token=${encodeURIComponent(code)}`;
+  url.hash = "";
+  return url.toString();
 }

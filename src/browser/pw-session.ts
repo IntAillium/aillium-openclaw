@@ -507,6 +507,11 @@ async function resolvePageByTargetIdOrThrow(opts: {
   return page;
 }
 
+/** The shared Playwright connection for a profile's browser (connects on first use). */
+export async function getPlaywrightBrowser(cdpUrl: string): Promise<Browser> {
+  return (await connectBrowser(cdpUrl)).browser;
+}
+
 export async function getPageForTargetId(opts: {
   cdpUrl: string;
   targetId?: string;

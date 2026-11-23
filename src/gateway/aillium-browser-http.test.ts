@@ -212,3 +212,65 @@ describe("Aillium browser approval grant route", () => {
     expect(response.statusCode).toBe(400);
   });
 });
+
+describe("Aillium browser overlay route", () => {
+  beforeEach(() => {
+    vi.stubEnv("OPENCLAW_GATEWAY_TOKEN", "runtime-secret");
+    mocks.startBrowserControlServiceFromConfig.mockResolvedValue({ port: 18791 });
+    mocks.dispatch.mockResolvedValue({
+      status: 200,
+      body: { ok: true, applied: true, state: "released", previous: "control" },
+    });
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects callers without the runtime token", async () => {
+    const response = createResponse();
+    await handleAilliumBrowserRequest(
+      createRequest({ method: "POST", body: JSON.stringify({ state: "released" }) }),
+      response,
+      "/api/aillium/browser/overlay",
+    );
+    expect(response.statusCode).toBe(401);
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("passes the overlay change to the browser for the profile", async () => {
+    const response = createResponse();
+    await handleAilliumBrowserRequest(
+      createRequest({
+        method: "POST",
+        headers: { "x-aillium-runtime-token": "runtime-secret" },
+        body: JSON.stringify({ state: "released", message: "You took over.", profile: "aillium" }),
+      }),
+      response,
+      "/api/aillium/browser/overlay",
+    );
+    expect(mocks.dispatch).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/aillium/overlay",
+      query: { profile: "aillium" },
+      body: { state: "released", message: "You took over." },
+      signal: expect.any(AbortSignal),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({ applied: true, previous: "control" });
+  });
+
+  it("rejects an unknown state", async () => {
+    const response = createResponse();
+    await handleAilliumBrowserRequest(
+      createRequest({
+        method: "POST",
+        headers: { authorization: "Bearer runtime-secret" },
+        body: JSON.stringify({ state: "hidden" }),
+      }),
+      response,
+      "/api/aillium/browser/overlay",
+    );
+    expect(response.statusCode).toBe(400);
+  });
+});

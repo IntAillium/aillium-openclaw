@@ -277,3 +277,27 @@ export async function browserScreenshotAction(
     timeoutMs: 20000,
   });
 }
+
+export type BrowserAilliumOverlayResult = {
+  ok: boolean;
+  applied: boolean;
+  state?: string;
+  reason?: string;
+};
+
+/** Shows Aillium's overlay (in control, decision needed, let go) on the browser's pages. */
+export async function browserAilliumOverlay(
+  baseUrl: string | undefined,
+  opts: { state: "control" | "decision" | "released" | "off"; message?: string; profile?: string },
+): Promise<BrowserAilliumOverlayResult> {
+  const q = buildProfileQuery(opts.profile);
+  return await fetchBrowserJson<BrowserAilliumOverlayResult>(
+    withBaseUrl(baseUrl, `/aillium/overlay${q}`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: opts.state, message: opts.message }),
+      timeoutMs: 5000,
+    },
+  );
+}

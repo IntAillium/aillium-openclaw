@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 type BackgroundUtilsModule = {
   buildRelayWsUrl: (port: number, gatewayToken: string) => Promise<string>;
+  hostedConnectUrl: (serverUrl: string, pairingCode: string) => string;
   deriveRelayToken: (gatewayToken: string, port: number) => Promise<string>;
   isLastRemainingTab: (
     allTabs: Array<{ id?: number | undefined } | null | undefined>,
@@ -34,6 +35,7 @@ async function loadBackgroundUtils(): Promise<BackgroundUtilsModule> {
 const {
   buildRelayWsUrl,
   deriveRelayToken,
+  hostedConnectUrl,
   isLastRemainingTab,
   isMissingTabError,
   isRetryableReconnectError,
@@ -53,6 +55,17 @@ describe("chrome extension background utils", () => {
   it("builds websocket url with derived relay token", async () => {
     const url = await buildRelayWsUrl(18792, "test-token");
     expect(url).toMatch(/^ws:\/\/127\.0\.0\.1:18792\/extension\?token=[0-9a-f]{64}$/);
+  });
+
+  it("dials Aillium over wss with the pairing code", () => {
+    expect(hostedConnectUrl("https://runtime.aillium.cloud/", "ach_abc")).toBe(
+      "wss://runtime.aillium.cloud/api/aillium/chrome/connect?token=ach_abc",
+    );
+    expect(hostedConnectUrl("http://127.0.0.1:18789", "x")).toBe(
+      "ws://127.0.0.1:18789/api/aillium/chrome/connect?token=x",
+    );
+    expect(() => hostedConnectUrl("http://runtime.example.com", "x")).toThrow(/https/);
+    expect(() => hostedConnectUrl("https://runtime.aillium.cloud", " ")).toThrow(/pairing code/);
   });
 
   it("throws when gateway token is missing", async () => {

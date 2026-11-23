@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import {
   browserAct,
+  browserAilliumOverlay,
   browserArmDialog,
   browserArmFileChooser,
   browserNavigate,
@@ -313,6 +314,8 @@ export function createBrowserTool(opts?: {
   const targetDefault = opts?.sandboxBridgeUrl ? "sandbox" : "host";
   // Remembers what each ref on the page says, so a click on "Pay now" is recognized.
   const finalActionGuard = new BrowserFinalActionGuard();
+  // Inside Aillium the page shows who is in charge. Shown once, then again after a decision.
+  let controlOverlayShown = false;
   const hostHint =
     opts?.allowHostControl === false ? "Host target blocked by policy." : "Host target allowed.";
   return {
@@ -395,6 +398,31 @@ export function createBrowserTool(opts?: {
             return proxy.result;
           }
         : null;
+
+      const setOverlay = async (state: "control" | "decision", message?: string) => {
+        try {
+          const result = proxyRequest
+            ? ((await proxyRequest({
+                method: "POST",
+                path: "/aillium/overlay",
+                profile,
+                body: { state, message },
+                timeoutMs: 5_000,
+              })) as { applied?: boolean })
+            : await browserAilliumOverlay(baseUrl, { state, message, profile });
+          return result?.applied === true;
+        } catch {
+          // The overlay must never stop the task.
+          return false;
+        }
+      };
+      if (
+        isAilliumBrowserGuardEnabled() &&
+        !controlOverlayShown &&
+        !OVERLAY_SKIP_ACTIONS.has(action)
+      ) {
+        controlOverlayShown = await setOverlay("control");
+      }
 
       switch (action) {
         case "status":
@@ -540,6 +568,8 @@ export function createBrowserTool(opts?: {
                 proxyRequest,
               });
               if (blocked) {
+                await setOverlay("decision", blockedOverlayMessage(blocked));
+                controlOverlayShown = false;
                 throw new Error(blocked);
               }
             }
@@ -733,6 +763,8 @@ export function createBrowserTool(opts?: {
               proxyRequest,
             });
             if (blocked) {
+              await setOverlay("decision", blockedOverlayMessage(blocked));
+              controlOverlayShown = false;
               return { content: [{ type: "text" as const, text: blocked }], details: { blocked } };
             }
           }
@@ -748,6 +780,15 @@ export function createBrowserTool(opts?: {
       }
     },
   };
+}
+
+// Reading status or starting and stopping the browser is not "taking control" of a page.
+const OVERLAY_SKIP_ACTIONS = new Set(["status", "profiles", "start", "stop"]);
+
+/** "Approve: Pay now" for the overlay, from the approval line the guard wrote. */
+function blockedOverlayMessage(blocked: string): string {
+  const match = blocked.match(/^Approval needed: "(.+?)" is a final/);
+  return match ? `Approve: ${match[1]}` : "Waiting for your approval";
 }
 
 async function readPageRefs(params: {

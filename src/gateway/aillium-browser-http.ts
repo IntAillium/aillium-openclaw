@@ -1,3 +1,4 @@
+import { operatorControlSchema, OperatorControlError, runOperatorControl } from "../browser/operator-control.js";
 import { readFile, unlink } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
@@ -7,11 +8,13 @@ import {
   startBrowserControlServiceFromConfig,
 } from "../browser/control-service.js";
 import { createBrowserRouteDispatcher } from "../browser/routes/dispatcher.js";
+import { AILLIUM_CHROME_STATUS_PATH, sendAilliumChromeStatus } from "./aillium-chrome-bridge.js";
 import { readJsonBodyOrError, sendMethodNotAllowed } from "./http-common.js";
 import { getBearerToken } from "./http-utils.js";
 
 const AILLIUM_BROWSER_CAPTURE_PATH = "/api/aillium/browser/capture";
 const AILLIUM_BROWSER_APPROVAL_GRANT_PATH = "/api/aillium/browser/approval-grant";
+const AILLIUM_BROWSER_OVERLAY_PATH = "/api/aillium/browser/overlay";
 const BODY_LIMIT_BYTES = 16 * 1024;
 
 // Aillium Core calls this after the owner approves a final browser step, so the
@@ -29,6 +32,16 @@ const approvalGrantBodySchema = z.object({
 
 const captureBodySchema = z.object({
   profile: z.string().min(1).max(128).optional(),
+  targetId: z.string().min(1).max(256).optional(),
+});
+
+// Aillium Core calls this when the owner takes over or resets a task, so the
+// page shows that Aillium has let go.
+const overlayBodySchema = z.object({
+  state: z.enum(["control", "decision", "released", "off"]),
+  message: z.string().max(500).optional(),
+  profile: z.string().min(1).max(128).optional(),
+  onlyIfActive: z.boolean().optional(),
 });
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -86,6 +99,50 @@ async function handleApprovalGrant(req: IncomingMessage, res: ServerResponse): P
   return true;
 }
 
+async function handleOverlay(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  if (req.method !== "POST") {
+    sendMethodNotAllowed(res, "POST");
+    return true;
+  }
+  if (!isAuthorized(req)) {
+    sendJson(res, 401, { error: "Unauthorized" });
+    return true;
+  }
+  const rawBody = await readJsonBodyOrError(req, res, BODY_LIMIT_BYTES);
+  if (rawBody === undefined) {
+    return true;
+  }
+  const parsed = overlayBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: "state must be control, decision, released or off" });
+    return true;
+  }
+  try {
+    const browser = await startBrowserControlServiceFromConfig();
+    if (!browser) {
+      sendJson(res, 200, { ok: true, applied: false, reason: "Browser control is disabled" });
+      return true;
+    }
+    const { profile, ...body } = parsed.data;
+    const dispatcher = createBrowserRouteDispatcher(createBrowserControlContext());
+    const result = await dispatcher.dispatch({
+      method: "POST",
+      path: "/aillium/overlay",
+      query: profile ? { profile } : undefined,
+      body,
+      signal: AbortSignal.timeout(10_000),
+    });
+    sendJson(res, result.status, result.body);
+  } catch (error) {
+    sendJson(res, 503, {
+      ok: false,
+      applied: false,
+      error: error instanceof Error ? error.message : "Browser overlay failed",
+    });
+  }
+  return true;
+}
+
 export async function handleAilliumBrowserRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -94,7 +151,22 @@ export async function handleAilliumBrowserRequest(
   if (requestPath === AILLIUM_BROWSER_APPROVAL_GRANT_PATH) {
     return await handleApprovalGrant(req, res);
   }
-  if (requestPath !== AILLIUM_BROWSER_CAPTURE_PATH) {
+  if (requestPath === AILLIUM_BROWSER_OVERLAY_PATH) {
+    return await handleOverlay(req, res);
+  }
+  if (requestPath === AILLIUM_CHROME_STATUS_PATH) {
+    if (req.method !== "GET") {
+      sendMethodNotAllowed(res, "GET");
+      return true;
+    }
+    if (!isAuthorized(req)) {
+      sendJson(res, 401, { error: "Unauthorized" });
+      return true;
+    }
+    sendAilliumChromeStatus(res);
+    return true;
+  }
+  if (requestPath !== AILLIUM_BROWSER_CAPTURE_PATH && requestPath !== "/api/aillium/browser/control") {
     return false;
   }
   if (req.method !== "POST") {
@@ -109,6 +181,19 @@ export async function handleAilliumBrowserRequest(
   try {
     const rawBody = await readJsonBodyOrError(req, res, BODY_LIMIT_BYTES);
     if (rawBody === undefined) {
+      return true;
+    }
+    if (requestPath === "/api/aillium/browser/control") {
+      const parsed = operatorControlSchema.safeParse(rawBody);
+      if (!parsed.success) {
+        sendJson(res, 400, { available: false, error: "Invalid browser control request" });
+        return true;
+      }
+      if (!(await startBrowserControlServiceFromConfig())) {
+        sendJson(res, 503, { available: false, error: "Browser control is disabled" });
+        return true;
+      }
+      sendJson(res, 200, await runOperatorControl(createBrowserControlContext(), parsed.data));
       return true;
     }
     const body = captureBodySchema.parse(rawBody);
@@ -129,6 +214,7 @@ export async function handleAilliumBrowserRequest(
       body: {
         type: "jpeg",
         fullPage: false,
+        ...(body.targetId ? { targetId: body.targetId } : {}),
       },
       signal: AbortSignal.timeout(15_000),
     });
@@ -174,9 +260,9 @@ export async function handleAilliumBrowserRequest(
     });
     return true;
   } catch (error) {
-    sendJson(res, 503, {
+    sendJson(res, error instanceof OperatorControlError ? error.status : 503, {
       available: false,
-      error: error instanceof Error ? error.message : "Browser capture failed",
+      error: error instanceof OperatorControlError ? error.message : "Browser connection unavailable",
     });
     return true;
   }

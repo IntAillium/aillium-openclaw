@@ -1,23 +1,23 @@
-# OpenClaw Chrome Extension (Browser Relay)
+# Aillium for Chrome
 
-Purpose: attach OpenClaw to an existing Chrome tab so the Gateway can automate it (via the local CDP relay server).
+Lets Aillium work in your own Chrome (with your logins) instead of its own browser.
 
-## Dev / load unpacked
+- Aillium opens its tabs in a purple **Aillium** tab group.
+- Every page shows whether Aillium is in control, needs a decision, or has let go.
+- Final steps (pay, send, submit, delete) wait for your approval in Aillium.
+- **Stop**: right-click the toolbar icon, or use the options page. Aillium lets go of every tab and stays
+  disconnected until you turn it back on.
 
-1. Build/run OpenClaw Gateway with browser control enabled.
-2. Ensure the relay server is reachable at `http://127.0.0.1:18792/` (default).
-3. Install the extension to a stable path:
+## Install (unpacked, for now)
 
-   ```bash
-   openclaw browser extension install
-   openclaw browser extension path
-   ```
+1. Chrome → `chrome://extensions` → turn on Developer mode → Load unpacked → pick this folder.
+2. In Aillium, open Settings → Connect Chrome → Create pairing code.
+3. Paste the code into the extension's options page and click Save and connect.
 
-4. Chrome → `chrome://extensions` → enable “Developer mode”.
-5. “Load unpacked” → select the path printed above.
-6. Pin the extension. Click the icon on a tab to attach/detach.
+The extension connects out to `wss://<aillium runtime>/api/aillium/chrome/connect`. Nothing listens on your
+computer.
 
-## Options
+## Local OpenClaw (advanced)
 
-- `Relay port`: defaults to `18792`.
-- `Gateway token`: required. Set this to `gateway.auth.token` (or `OPENCLAW_GATEWAY_TOKEN`).
+Leave the pairing code empty to use a local OpenClaw relay (`http://127.0.0.1:18792/`) with the gateway
+token, as before.

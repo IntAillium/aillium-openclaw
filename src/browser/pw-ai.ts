@@ -17,6 +17,12 @@ export {
 } from "./pw-session.js";
 
 export {
+  type AilliumOverlayState,
+  getAilliumOverlayStatus,
+  setAilliumOverlayViaPlaywright,
+} from "./pw-aillium-overlay.js";
+
+export {
   armDialogViaPlaywright,
   armFileUploadViaPlaywright,
   batchViaPlaywright,
