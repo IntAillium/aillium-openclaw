@@ -1,3 +1,4 @@
+import { operatorControlSchema, OperatorControlError, runOperatorControl } from "../browser/operator-control.js";
 import { readFile, unlink } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
@@ -31,6 +32,7 @@ const approvalGrantBodySchema = z.object({
 
 const captureBodySchema = z.object({
   profile: z.string().min(1).max(128).optional(),
+  targetId: z.string().min(1).max(256).optional(),
 });
 
 // Aillium Core calls this when the owner takes over or resets a task, so the
@@ -164,7 +166,7 @@ export async function handleAilliumBrowserRequest(
     sendAilliumChromeStatus(res);
     return true;
   }
-  if (requestPath !== AILLIUM_BROWSER_CAPTURE_PATH) {
+  if (requestPath !== AILLIUM_BROWSER_CAPTURE_PATH && requestPath !== "/api/aillium/browser/control") {
     return false;
   }
   if (req.method !== "POST") {
@@ -179,6 +181,19 @@ export async function handleAilliumBrowserRequest(
   try {
     const rawBody = await readJsonBodyOrError(req, res, BODY_LIMIT_BYTES);
     if (rawBody === undefined) {
+      return true;
+    }
+    if (requestPath === "/api/aillium/browser/control") {
+      const parsed = operatorControlSchema.safeParse(rawBody);
+      if (!parsed.success) {
+        sendJson(res, 400, { available: false, error: "Invalid browser control request" });
+        return true;
+      }
+      if (!(await startBrowserControlServiceFromConfig())) {
+        sendJson(res, 503, { available: false, error: "Browser control is disabled" });
+        return true;
+      }
+      sendJson(res, 200, await runOperatorControl(createBrowserControlContext(), parsed.data));
       return true;
     }
     const body = captureBodySchema.parse(rawBody);
@@ -199,6 +214,7 @@ export async function handleAilliumBrowserRequest(
       body: {
         type: "jpeg",
         fullPage: false,
+        ...(body.targetId ? { targetId: body.targetId } : {}),
       },
       signal: AbortSignal.timeout(15_000),
     });
@@ -244,9 +260,9 @@ export async function handleAilliumBrowserRequest(
     });
     return true;
   } catch (error) {
-    sendJson(res, 503, {
+    sendJson(res, error instanceof OperatorControlError ? error.status : 503, {
       available: false,
-      error: error instanceof Error ? error.message : "Browser capture failed",
+      error: error instanceof OperatorControlError ? error.message : "Browser connection unavailable",
     });
     return true;
   }
