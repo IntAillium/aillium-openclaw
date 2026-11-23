@@ -124,7 +124,9 @@ export async function callAilliumWorkspace(params: {
   }
   if (!res.ok) {
     const message =
-      body && typeof body === "object" && typeof (body as { message?: unknown }).message === "string"
+      body &&
+      typeof body === "object" &&
+      typeof (body as { message?: unknown }).message === "string"
         ? (body as { message: string }).message
         : `Aillium could not do that (HTTP ${res.status}).`;
     throw new Error(message);

@@ -25,7 +25,8 @@ describe("aillium_workspace tool", () => {
   it("sends the action and its fields to Core with the run's session key", async () => {
     configure();
     const fetchImpl = vi.fn(
-      async () => new Response(JSON.stringify({ id: "doc1", url: "https://x/docx/doc1" }), { status: 200 }),
+      async () =>
+        new Response(JSON.stringify({ id: "doc1", url: "https://x/docx/doc1" }), { status: 200 }),
     );
     const result = await callAilliumWorkspace({
       sessionKey: "agent:main:s1",
@@ -36,7 +37,9 @@ describe("aillium_workspace tool", () => {
     expect(result).toEqual({ id: "doc1", url: "https://x/docx/doc1" });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://core.test/master-agent/runtime/tools");
-    expect((init.headers as Record<string, string>)["x-aillium-runtime-token"]).toBe("runtime-token");
+    expect((init.headers as Record<string, string>)["x-aillium-runtime-token"]).toBe(
+      "runtime-token",
+    );
     expect(JSON.parse(String(init.body))).toEqual({
       sessionKey: "agent:main:s1",
       action: "doc_create",
@@ -47,7 +50,8 @@ describe("aillium_workspace tool", () => {
   it("passes on Core's own explanation when a call is refused", async () => {
     configure();
     const fetchImpl = vi.fn(
-      async () => new Response(JSON.stringify({ message: "Lark is not connected." }), { status: 400 }),
+      async () =>
+        new Response(JSON.stringify({ message: "Lark is not connected." }), { status: 400 }),
     );
     await expect(
       callAilliumWorkspace({
