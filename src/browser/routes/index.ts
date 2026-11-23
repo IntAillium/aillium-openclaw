@@ -1,7 +1,7 @@
 import { activeOperatorLease, withBrowserProfileLock } from "../operator-control.js";
 import type { BrowserRouteContext } from "../server-context.js";
-import { registerBrowserAilliumRoutes } from "./aillium.js";
 import { registerBrowserAgentRoutes } from "./agent.js";
+import { registerBrowserAilliumRoutes } from "./aillium.js";
 import { registerBrowserBasicRoutes } from "./basic.js";
 import { registerBrowserTabRoutes } from "./tabs.js";
 import type { BrowserRouteRegistrar } from "./types.js";
