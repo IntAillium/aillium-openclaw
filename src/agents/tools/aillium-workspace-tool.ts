@@ -23,6 +23,10 @@ export const AILLIUM_WORKSPACE_ACTIONS = [
   "meeting_create",
   "ask_department",
   "department_reply",
+  "projects_list",
+  "project_update",
+  "codespace_start",
+  "codespace_status",
 ] as const;
 
 // Asking a department waits for its answer, so allow well past Core's own wait.
@@ -86,6 +90,12 @@ const AilliumWorkspaceSchema = Type.Object({
   wait_seconds: Type.Optional(
     Type.Number({ description: "ask_department / department_reply: how long to wait (max 240)." }),
   ),
+  project_id: Type.Optional(
+    Type.String({
+      description:
+        "project_update / codespace_start / codespace_status: the project id from projects_list.",
+    }),
+  ),
   limit: Type.Optional(Type.Number({ description: "List actions: how many to return." })),
 });
 
@@ -144,7 +154,10 @@ export function createAilliumWorkspaceTool(opts?: {
     label: "Aillium workspace",
     name: "aillium_workspace",
     description: [
-      "Work in the business's Lark and with its departments.",
+      "Work with the business's projects, Codespace, Lark and departments.",
+      "Projects: projects_list (projects and their next milestone), project_update (project_id, content) posts a progress update.",
+      "Codespace: codespace_start (project_id, content = what to change, title) makes code changes in the project's GitHub repository on its own branch; merging always waits for a person. codespace_status (project_id) checks on it.",
+      "For documents, sheets, slides, notes and PDFs use the aillium_office tool first; use Lark below when asked for or when the work must live there.",
       "Drive: drive_list, doc_read (document), doc_create (title, content as Markdown), doc_append (document, content).",
       "Lark tasks: tasks_list (status), task_create (summary, description, due, assignees), task_update (task_id, completed, ...).",
       "Calendar: calendar_list, meeting_create (title, start, end, attendees, location, description).",

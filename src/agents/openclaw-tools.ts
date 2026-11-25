@@ -7,6 +7,7 @@ import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import type { SpawnedToolContext } from "./spawned-context.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
+import { createAilliumOfficeTool } from "./tools/aillium-office-tool.js";
 import { createAilliumWorkspaceTool } from "./tools/aillium-workspace-tool.js";
 import { createBrowserTool } from "./tools/browser-tool.js";
 import { createCanvasTool } from "./tools/canvas-tool.js";
@@ -142,6 +143,10 @@ export function createOpenClawTools(
   const ailliumWorkspaceTool = createAilliumWorkspaceTool({
     agentSessionKey: options?.agentSessionKey,
   });
+  // Aillium Office (Drive, Docs, Sheets, Slides, PDF, Notes), through Aillium Core.
+  const ailliumOfficeTool = createAilliumOfficeTool({
+    agentSessionKey: options?.agentSessionKey,
+  });
   const tools: AnyAgentTool[] = [
     createBrowserTool({
       sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
@@ -217,6 +222,7 @@ export function createOpenClawTools(
       sandboxed: options?.sandboxed,
     }),
     ...(ailliumWorkspaceTool ? [ailliumWorkspaceTool] : []),
+    ...(ailliumOfficeTool ? [ailliumOfficeTool] : []),
     ...(webSearchTool ? [webSearchTool] : []),
     ...(webFetchTool ? [webFetchTool] : []),
     ...(imageTool ? [imageTool] : []),
