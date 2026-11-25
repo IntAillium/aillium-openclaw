@@ -90,14 +90,23 @@ const AilliumOfficeSchema = Type.Object({
       description: "docs/notes: Markdown to write (create, insert, replace section).",
     }),
   ),
-  location: optionalStringEnum(["my", "org", "department"] as const, {
+  location: optionalStringEnum(["my", "org", "department", "project"] as const, {
     description:
-      "Where to save: my (the person's drive), org, or department (default for department AIs).",
+      "Where to save: my (the person's drive), org, department (default for department AIs) or project.",
   }),
   department_id: Type.Optional(Type.String({ description: "location=department: which one." })),
+  project_id: Type.Optional(
+    Type.String({ description: "location=project or view=project: the shared project's id." }),
+  ),
+  milestone_id: Type.Optional(
+    Type.String({ description: "Attach the new file to this project milestone." }),
+  ),
+  summary: Type.Optional(
+    Type.String({ description: "Edits: one line on what you changed, shown to the reviewer." }),
+  ),
   folder: Type.Optional(Type.String({ description: "Folder id to save into or list." })),
   view: optionalStringEnum(
-    ["my", "org", "department", "shared", "recent", "favourites", "trash"] as const,
+    ["my", "org", "department", "project", "shared", "recent", "favourites", "trash"] as const,
     {
       description: "files.list: which part of Drive.",
     },
