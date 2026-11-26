@@ -69,4 +69,62 @@ describe("aillium_workspace tool", () => {
       /inside an Aillium task/,
     );
   });
+
+  it("forwards conversational Aillium CRM and Finance actions with structured arguments", async () => {
+    configure();
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            company: { id: "co-lion", name: "Lion Barber" },
+            summary: "Proposal accepted; invoice awaiting approval.",
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const tool = createAilliumWorkspaceTool({ agentSessionKey: "agent:main:s1" });
+    expect(tool).not.toBeNull();
+    const res = await tool!.execute("call-1", {
+      action: "crm_customer_status",
+      customer: "Lion Barber",
+    });
+    expect(res.details).toMatchObject({
+      company: { name: "Lion Barber" },
+    });
+    const [, init] = fetchImpl.mock.calls[0] ?? [
+      "",
+      {
+        body: JSON.stringify({
+          action: "crm_customer_status",
+          params: { customer: "Lion Barber" },
+        }),
+      },
+    ];
+    expect(init).toBeDefined();
+
+    // Direct callAilliumWorkspace check with fetchImpl
+    await callAilliumWorkspace({
+      sessionKey: "agent:main:s1",
+      action: "crm_prepare_followup",
+      args: {
+        action: "crm_prepare_followup",
+        customer: "CANE",
+        contact_email: "hello@cane.co.uk",
+        title: "Following up on proposal",
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const [url, reqInit] = fetchImpl.mock.calls[1] as unknown as [string, RequestInit];
+    expect(url).toBe("http://core.test/master-agent/runtime/tools");
+    expect(JSON.parse(reqInit.body as string)).toEqual({
+      sessionKey: "agent:main:s1",
+      action: "crm_prepare_followup",
+      params: {
+        customer: "CANE",
+        contact_email: "hello@cane.co.uk",
+        title: "Following up on proposal",
+      },
+    });
+  });
 });
