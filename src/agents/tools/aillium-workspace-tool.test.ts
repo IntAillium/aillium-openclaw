@@ -127,4 +127,41 @@ describe("aillium_workspace tool", () => {
       },
     });
   });
+
+  it("forwards Sales Intelligence tool actions with structured parameters to Core", async () => {
+    configure();
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ createdCount: 2, deduplicatedCount: 1, skippedSuppressedCount: 0 }),
+          { status: 200 },
+        ),
+    );
+    const result = await callAilliumWorkspace({
+      sessionKey: "agent:sales:s1",
+      action: "sales_discover_leads",
+      args: {
+        action: "sales_discover_leads",
+        source_key: "contracts-finder",
+        query: "software",
+        region: "London",
+        limit: 5,
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result).toEqual({ createdCount: 2, deduplicatedCount: 1, skippedSuppressedCount: 0 });
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://core.test/master-agent/runtime/tools");
+    expect(JSON.parse(init.body as string)).toEqual({
+      sessionKey: "agent:sales:s1",
+      action: "sales_discover_leads",
+      params: {
+        source_key: "contracts-finder",
+        query: "software",
+        region: "London",
+        limit: 5,
+      },
+    });
+  });
+
 });
